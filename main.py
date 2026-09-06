@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"  # ከ BotFather ያገኘኸውን Token እዚህ ተካ
 TELEBIRR_NO = "0935657570"                       # የ Telebirr ስልክ ቁጥርህ
 ADMIN_USERNAME = "@mst10m"                # የቴሌግራም username ህ
-PHOTO_PATH = "instructions.jpg"                 # በ GitHub ላይ የሰቀልከው የፎቶ ስም
+PHOTO_PATH = "photo_2026-09-06_22-09-38.jpg"     # በ GitHub ላይ የሰቀልከው የፎቶ ስም
 
 # የ FPL ሊግ መረጃዎች
 FPL_LEAGUE_ID = "2309527"          
@@ -28,7 +28,7 @@ user_invited_by = {}   # {user_id: referrer_user_id}
 
 app = Flask(__name__)
 
-# Main Keyboard Menu (አዲሱ «💳 ለመክፈል» ቁልፍ ተጨምሯል)
+# Main Keyboard Menu
 def main_keyboard():
     keyboard = [
         ["💳 ለመክፈል", "⚽ የመግቢያ ኮድ ለመቀበል"],
@@ -174,7 +174,6 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 **እንዴት መላክ እንዳለብዎት በምስሉ ላይ ማየት ይችላሉ👇**"
     )
 
-    # ፎቶው ካለ ከነጽሁፉ መላክ፣ ከሌለ ጽሁፉን ብቻ መላክ
     if os.path.exists(PHOTO_PATH):
         with open(PHOTO_PATH, 'rb') as photo:
             await update.message.reply_photo(
