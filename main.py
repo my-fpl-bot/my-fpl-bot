@@ -1,15 +1,16 @@
 import os
 import re
 import requests
+import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =========================================================
-# ⚠️ እነዚህን 3 ነገሮች በጥንቃቄ አስተካክል (ጥቅስ ምልክቱ እንዳይጠፋ)
+# ⚠️ እነዚህን 3 መረጃዎች ብቻ የራስህን አስተካክል
 # =========================================================
-TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"  # ከ BotFather ያገኘኸውን Token እዚ ላይ ተካ
+TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"  # ከ BotFather ያገኘኸውን Token እዚህ ተካ
 TELEBIRR_NO = "0935657570"                       # የ Telebirr ስልክ ቁጥርህ
 ADMIN_USERNAME = "@mst10man"                # የቴሌግራም username ህ
 
@@ -22,6 +23,7 @@ pending_payments = {}
 
 app = Flask(__name__)
 
+# --- FPL Gameweek እና Deadline መረጃ ማግኛ ---
 def get_current_gameweek_info():
     try:
         url = "https://fantasy.premierleague.com/api/bootstrap-static/"
@@ -48,6 +50,7 @@ def get_current_gameweek_info():
         print(f"FPL API Error: {e}")
         return {"gw_name": "Gameweek", "deadline_str": "N/A", "is_open": True}
 
+# --- Telebirr SMS Webhook ---
 @app.route('/sms_webhook', methods=['POST'])
 def sms_webhook():
     gw_info = get_current_gameweek_info()
@@ -62,26 +65,34 @@ def sms_webhook():
         tx_id = tx_match.group(1)
         if tx_id in pending_payments:
             user_id = pending_payments.pop(tx_id)
-            bot_app.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
-                    f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n"
-                    f"🔑 **የ FPL ሊግ መግቢያ ኮድ፡** `{FPL_CODE}`\n\n"
-                    f"🔗 **ቀጥታ ለመቀላቀል ሊንኩን ተጫን፡**\n"
-                    f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}"
-                ),
-                parse_mode="Markdown"
+            
+            # Message መላክ
+            loop = asyncio.get_event_loop()
+            loop.create_task(
+                bot_app.bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
+                        f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n"
+                        f"🔑 **የ FPL ሊግ መግቢያ ኮድ፡** `{FPL_CODE}`\n\n"
+                        f"🔗 **ቀጥታ ለመቀላቀል ሊንኩን ተጫን፡**\n"
+                        f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}"
+                    ),
+                    parse_mode="Markdown"
+                )
             )
             return "OK", 200
+            
     return "Ignored", 200
 
 @app.route('/')
 def home():
-    return "FPL Bot with Dynamic Gameweek is running!", 200
+    return "FPL Bot is running successfully!", 200
 
+# --- Telegram Bot Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gw_info = get_current_gameweek_info()
+    
     if not gw_info["is_open"]:
         await update.message.reply_text(
             f"⚠️ **ይቅርታ! የ {gw_info['gw_name']} የመመዝገቢያ ሰዓት (Deadline) አብቅቷል።**\n\n"
@@ -123,6 +134,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gw_info = get_current_gameweek_info()
+    
     if not gw_info["is_open"]:
         await update.message.reply_text(
             f"⚠️ **የ {gw_info['gw_name']} የመመዝገቢያ ሰዓት አልፏል።**\nለቀጣዩ Gameweek ምዝገባ ሲከፈት እንደገና ይሞክሩ።",
@@ -143,6 +155,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("እባክዎን ትክክለኛ የ Telebirr Transaction ID ያስገቡ።")
 
+# --- App Runner ---
 bot_app = Application.builder().token(TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("info", info))
@@ -151,6 +164,14 @@ bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messa
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    import threading
-    threading.Thread(target=lambda: bot_app.run_polling(), daemon=True).start()
+    
+    # Telegram Bot asynchronous initialization
+    async def run_bot():
+        await bot_app.initialize()
+        await bot_app.start()
+        await bot_app.updater.start_polling()
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_bot())
+    
     app.run(host='0.0.0.0', port=port)
