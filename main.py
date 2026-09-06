@@ -9,9 +9,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # =========================================================
 # ⚠️ እነዚህን 3 መረጃዎች ብቻ የራስህን አስተካክል
 # =========================================================
-TOKEN = "የቴሌግራም_ቦት_ቶከንህ"      # ከ BotFather ያገኘኸው Token
-TELEBIRR_NO = "09XXXXXXXX"         # የ Telebirr ስልክ ቁጥርህ
-ADMIN_USERNAME = "@YourUsername"    # የቴሌግራም የተጠቃሚ ስምህ (ለእርዳታ)
+TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"      # ከ BotFather ያገኘኸው Token
+TELEBIRR_NO = "0935657570"         # የ Telebirr ስልክ ቁጥርህ
+ADMIN_USERNAME = "@mst10man"    # የቴሌግራም የተጠቃሚ ስምህ (ለእርዳታ)
 
 # የሊግህ መረጃዎች
 FPL_LEAGUE_ID = "2309527"          
