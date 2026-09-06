@@ -165,13 +165,11 @@ bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messa
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     
-    # Telegram Bot asynchronous initialization
-    async def run_bot():
-        await bot_app.initialize()
-        await bot_app.start()
-        await bot_app.updater.start_polling()
-
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_bot())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    loop.run_until_complete(bot_app.initialize())
+    loop.run_until_complete(bot_app.start())
+    loop.create_task(bot_app.updater.start_polling())
     
     app.run(host='0.0.0.0', port=port)
