@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+import threading
 import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
@@ -66,9 +67,8 @@ def sms_webhook():
         if tx_id in pending_payments:
             user_id = pending_payments.pop(tx_id)
             
-            # Message መላክ
-            loop = asyncio.get_event_loop()
-            loop.create_task(
+            # Message ለመላክ
+            asyncio.run_coroutine_threadsafe(
                 bot_app.bot.send_message(
                     chat_id=user_id,
                     text=(
@@ -79,7 +79,8 @@ def sms_webhook():
                         f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}"
                     ),
                     parse_mode="Markdown"
-                )
+                ),
+                bot_loop
             )
             return "OK", 200
             
@@ -155,21 +156,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("እባክዎን ትክክለኛ የ Telebirr Transaction ID ያስገቡ።")
 
-# --- App Runner ---
+# --- Application setup ---
 bot_app = Application.builder().token(TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("info", info))
 bot_app.add_handler(CommandHandler("help", info))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+bot_loop = asyncio.new_event_loop()
+
+def run_telegram_bot():
+    asyncio.set_event_loop(bot_loop)
+    bot_loop.run_until_complete(bot_app.initialize())
+    bot_loop.run_until_complete(bot_app.start())
+    bot_loop.run_until_complete(bot_app.updater.start_polling())
+    bot_loop.run_forever()
+
 if __name__ == '__main__':
+    # ቴሌግራም ቦቱን ለብቻው በ Thread ማስኬድ
+    t = threading.Thread(target=run_telegram_bot, daemon=True)
+    t.start()
+    
+    # Flask Web Server
     port = int(os.environ.get('PORT', 5000))
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    loop.run_until_complete(bot_app.initialize())
-    loop.run_until_complete(bot_app.start())
-    loop.create_task(bot_app.updater.start_polling())
-    
     app.run(host='0.0.0.0', port=port)
