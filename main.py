@@ -7,13 +7,13 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =========================================================
-# ⚠️ እነዚህን 3 መረጃዎች ብቻ የራስህን አስተካክል
+# ⚠️ እነዚህን 3 ነገሮች በጥንቃቄ አስተካክል (ጥቅስ ምልክቱ እንዳይጠፋ)
 # =========================================================
-TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"      # ከ BotFather ያገኘኸው Token
-TELEBIRR_NO = "0935657570"         # የ Telebirr ስልክ ቁጥርህ
-ADMIN_USERNAME = "@mst10man"    # የቴሌግራም የተጠቃሚ ስምህ (ለእርዳታ)
+TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"  # ከ BotFather ያገኘኸውን Token እዚ ላይ ተካ
+TELEBIRR_NO = "0935657570"                       # የ Telebirr ስልክ ቁጥርህ
+ADMIN_USERNAME = "@mst10man"                # የቴሌግራም username ህ
 
-# የሊግህ መረጃዎች
+# የ FPL ሊግ መረጃዎች
 FPL_LEAGUE_ID = "2309527"          
 FPL_CODE = "v8v7fu"                
 ENTRY_FEE = "100"                  
@@ -22,25 +22,20 @@ pending_payments = {}
 
 app = Flask(__name__)
 
-# --- FPL Gameweek እና Deadline መረጃ ማግኛ ---
 def get_current_gameweek_info():
     try:
         url = "https://fantasy.premierleague.com/api/bootstrap-static/"
         res = requests.get(url, timeout=10).json()
         events = res.get('events', [])
-        
         now_utc = datetime.now(timezone.utc)
         
         for event in events:
             deadline_str = event.get('deadline_time')
             if deadline_str:
                 deadline_dt = datetime.fromisoformat(deadline_str.replace('Z', '+00:00'))
-                # ክፍያ የሚዘጋበት ሰዓት (ከ Deadline 30 ደቂቃ በፊት)
                 close_time = deadline_dt - timedelta(minutes=30)
                 
-                # አሁን ያለንበት ወይም ቀጣዩ Gameweek ክፍያው ካልተዘጋ
                 if now_utc < close_time:
-                    # ወደ ኢትዮጵያ ሰዓት አቆጣጠር ማዛወር (UTC+3)
                     eat_time = deadline_dt + timedelta(hours=3)
                     time_str = eat_time.strftime("%d/%m/%Y - %I:%M %p")
                     return {
@@ -48,13 +43,11 @@ def get_current_gameweek_info():
                         "deadline_str": time_str,
                         "is_open": True
                     }
-        
         return {"gw_name": "Gameweek", "deadline_str": "Unknown", "is_open": False}
     except Exception as e:
         print(f"FPL API Error: {e}")
         return {"gw_name": "Gameweek", "deadline_str": "N/A", "is_open": True}
 
-# --- Telebirr SMS Webhook ---
 @app.route('/sms_webhook', methods=['POST'])
 def sms_webhook():
     gw_info = get_current_gameweek_info()
@@ -69,7 +62,6 @@ def sms_webhook():
         tx_id = tx_match.group(1)
         if tx_id in pending_payments:
             user_id = pending_payments.pop(tx_id)
-            
             bot_app.bot.send_message(
                 chat_id=user_id,
                 text=(
@@ -82,17 +74,14 @@ def sms_webhook():
                 parse_mode="Markdown"
             )
             return "OK", 200
-            
     return "Ignored", 200
 
 @app.route('/')
 def home():
     return "FPL Bot with Dynamic Gameweek is running!", 200
 
-# --- Telegram Bot Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gw_info = get_current_gameweek_info()
-    
     if not gw_info["is_open"]:
         await update.message.reply_text(
             f"⚠️ **ይቅርታ! የ {gw_info['gw_name']} የመመዝገቢያ ሰዓት (Deadline) አብቅቷል።**\n\n"
@@ -134,7 +123,6 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gw_info = get_current_gameweek_info()
-    
     if not gw_info["is_open"]:
         await update.message.reply_text(
             f"⚠️ **የ {gw_info['gw_name']} የመመዝገቢያ ሰዓት አልፏል።**\nለቀጣዩ Gameweek ምዝገባ ሲከፈት እንደገና ይሞክሩ።",
@@ -155,7 +143,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("እባክዎን ትክክለኛ የ Telebirr Transaction ID ያስገቡ።")
 
-# --- App Runner ---
 bot_app = Application.builder().token(TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("info", info))
