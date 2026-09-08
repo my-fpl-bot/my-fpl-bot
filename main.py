@@ -11,9 +11,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # =========================================================
 # ⚠️ እነዚህን መረጃዎች የራስህን አስተካክል
 # =========================================================
-TOKEN = "7123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"  # ከ BotFather ያገኘኸውን Token እዚህ ተካ
-TELEBIRR_NO = "0911223344"                       # የ Telebirr ስልክ ቁጥርህ
-ADMIN_USERNAME = "@YourUsername"                # የቴሌግራም username ህ
+TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"  # ከ BotFather ያገኘኸውን Token እዚህ ተካ
+TELEBIRR_NO = "0925358925"                       # የ Telebirr ስልክ ቁጥርህ
+ADMIN_USERNAME = "@mst10m"                # የቴሌግራም username ህ
 ADMIN_ID = 123456789                            # ከ @userinfobot ያገኘኸው የራስህ Telegram Numerical ID
 
 # የፎቶዎች ስም በ GitHub ላይ
@@ -23,7 +23,7 @@ PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"  # የ FPL የቡድን ስም �
 # የ FPL ሊግ መረጃዎች
 FPL_LEAGUE_ID = "2309527"          
 FPL_CODE = "v8v7fu"                
-ENTRY_FEE = "100"                  
+ENTRY_FEE = "50"                  
 
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
 DAYS_AMHARIC = {
