@@ -133,11 +133,14 @@ def get_league_standings():
         standings = res.get('standings', {}).get('results', [])
         league_name = res.get('league', {}).get('name', 'ETHIO FANTASY')
         
+        # ቴሌግራም እንዳያበላሸው Underscore ን Escape ማድረግ
+        escaped_link = CHANNEL_LINK.replace("_", r"\_")
+
         if not standings:
             return (
                 f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
                 f"📊 እስካሁን ምንም የተመዘገበ ደረጃ የለም።\n\n"
-                f"🎁 **ስለ ሽልማቱ ለማወቅና ሽልማቱን ለመቀበል የቴሌግራም ቻናላችንን ይቀላቀሉ፦**\n{CHANNEL_LINK}"
+                f"🎁 **ስለ ሽልማቱ ለማወቅና ሽልማቱን ለመቀበል የቴሌግራም ቻናላችንን ይቀላቀሉ፦**\n{escaped_link}"
             )
         
         text = f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
@@ -149,7 +152,7 @@ def get_league_standings():
             
             text += f"**{rank}. {entry_name}** ({player_name}) - `{total} pts`\n"
             
-        text += f"\n🎁 **ስለ ሽልማቱ ለማወቅ እና ሽልማቱን ለመቀበል የቴሌግራም ቻናላችንን ይቀላቀሉ፦**\n{CHANNEL_LINK}"
+        text += f"\n🎁 **ስለ ሽልማቱ ለማወቅ እና ሽልማቱን ለመቀበል የቴሌግራም ቻናላችንን ይቀላቀሉ፦**\n{escaped_link}"
         return text
     except Exception as e:
         print(f"Rank Error: {e}")
