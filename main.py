@@ -9,21 +9,22 @@ from telegram import Update, ReplyKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =========================================================
-# ⚠️ እነዚህን መረጃዎች የራስህን አስተካክል
+# ⚠️ Configs & IDs
 # =========================================================
-TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"  # ከ BotFather ያገኘኸውን Token እዚህ ተካ
-TELEBIRR_NO = "0925358925"                       # የ Telebirr ስልክ ቁጥርህ
-ADMIN_USERNAME = "@mst10m"                # የቴሌግራም username ህ
-ADMIN_ID = 123456789                            # ከ @userinfobot ያገኘኸው የራስህ Telegram Numerical ID
+TOKEN = "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0"
+TELEBIRR_NO = "0925358925"
+ADMIN_USERNAMES = "@mst10m ወይም @ATCITYZEN"
+CHANNEL_LINK = "https://t.me/ETHIO_FANTASY_1"
+GROUP_CHAT_ID = -1002391954418  # የግሩፕ ID
 
 # የፎቶዎች ስም በ GitHub ላይ
-PHOTO_PATH_1 = "photo_2026-09-06_22-09-38.jpg"  # የ Telebirr መመሪያ ፎቶ
-PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"  # የ FPL የቡድን ስም መመሪያ ፎቶ
+PHOTO_PATH_1 = "photo_2026-09-06_22-09-38.jpg"
+PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 
 # የ FPL ሊግ መረጃዎች
-FPL_LEAGUE_ID = "2309527"          
-FPL_CODE = "v8v7fu"                
-ENTRY_FEE = "50"                  
+FPL_LEAGUE_ID = "2309527"
+FPL_CODE = "v8v7fu"
+ENTRY_FEE = "50"
 
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
 DAYS_AMHARIC = {
@@ -55,7 +56,32 @@ def main_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# --- FPL Gameweek እና Deadline መረጃ ማግኛ ---
+# --- የፈረንጅ ቀንን ወደ ኢትዮጵያ ዘመን አቆጣጠር መቀየሪያ Function ---
+def gregorian_to_ethiopian(dt):
+    year, month, day = dt.year, dt.month, dt.day
+    is_leap = (year % 4 == 3)
+    new_year_day = 12 if is_leap else 11
+
+    if month == 9 and day < new_year_day:
+        eth_month = "ጳጉሜ"
+        eth_day = day + (6 if is_leap else 5)
+        eth_year = year - 8
+    elif month == 9:
+        eth_month = "መስከረም"
+        eth_day = day - (new_year_day - 1)
+        eth_year = year - 7
+    elif month == 10:
+        eth_month = "ጥቅምት" if day >= 11 else "መስከረም"
+        eth_day = (day - 10) if day >= 11 else (day + 20)
+        eth_year = year - 7
+    else:
+        eth_month = MONTHS_AMHARIC.get(dt.strftime("%B"), "")
+        eth_day = day
+        eth_year = year - 7
+
+    return eth_month, eth_day, eth_year
+
+# --- FPL Gameweek እና Deadline መረጃ ማግኛ (ሁለቱንም አቆጣጠር ጎን ለጎን ያሳያል) ---
 def get_current_gameweek_info():
     try:
         url = "https://fantasy.premierleague.com/api/bootstrap-static/"
@@ -71,13 +97,23 @@ def get_current_gameweek_info():
                 
                 if now_utc < close_time:
                     eat_time = deadline_dt + timedelta(hours=3)
-                    day_name = DAYS_AMHARIC.get(eat_time.strftime("%A"), eat_time.strftime("%A"))
-                    month_name = MONTHS_AMHARIC.get(eat_time.strftime("%B"), eat_time.strftime("%B"))
-                    day_num = eat_time.strftime("%d")
-                    year_num = eat_time.strftime("%Y")
+                    
+                    # 1. የአማርኛ/ኢትዮጵያ ቀን
+                    day_amharic = DAYS_AMHARIC.get(eat_time.strftime("%A"), eat_time.strftime("%A"))
+                    eth_month, eth_day, eth_year = gregorian_to_ethiopian(eat_time)
+                    
+                    # 2. የEnglish/Gregorian ቀን
+                    day_english = eat_time.strftime("%A")
+                    greg_month_short = eat_time.strftime("%b")
+                    greg_day = eat_time.strftime("%d")
+                    greg_year = eat_time.strftime("%Y")
+                    
                     time_ampm = eat_time.strftime("%I:%M %p")
                     
-                    formatted_deadline = f"ከዛሬ ጀምሮ እስከ {day_name}፣ {month_name} {day_num}/{year_num} - {time_ampm}"
+                    formatted_deadline = (
+                        f"ከዛሬ ጀምሮ እስከ {day_amharic}፣ {eth_month} {eth_day}/{eth_year} "
+                        f"({day_english}, {greg_month_short} {greg_day}/{greg_year}) - {time_ampm}"
+                    )
                     
                     return {
                         "gw_name": event.get('name'),
@@ -95,10 +131,14 @@ def get_league_standings():
         url = f"https://fantasy.premierleague.com/api/leagues-classic/{FPL_LEAGUE_ID}/standings/"
         res = requests.get(url, timeout=10).json()
         standings = res.get('standings', {}).get('results', [])
-        league_name = res.get('league', {}).get('name', 'FPL League')
+        league_name = res.get('league', {}).get('name', 'ETHIO FANTASY')
         
         if not standings:
-            return "📊 እስካሁን ምንም የተመዘገበ ደረጃ የለም።"
+            return (
+                f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
+                f"📊 እስካሁን ምንም የተመዘገበ ደረጃ የለም።\n\n"
+                f"🎁 **ስለ ሽልማቱ ለማወቅና ሽልማቱን ለመቀበል የቴሌግራም ቻናላችንን ይቀላቀሉ፦**\n{CHANNEL_LINK}"
+            )
         
         text = f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
         for player in standings[:10]:  # Top 10
@@ -108,7 +148,8 @@ def get_league_standings():
             total = player.get('total')
             
             text += f"**{rank}. {entry_name}** ({player_name}) - `{total} pts`\n"
-        
+            
+        text += f"\n🎁 **ስለ ሽልማቱ ለማወቅ እና ሽልማቱን ለመቀበል የቴሌግራም ቻናላችንን ይቀላቀሉ፦**\n{CHANNEL_LINK}"
         return text
     except Exception as e:
         print(f"Rank Error: {e}")
@@ -150,7 +191,7 @@ def sms_webhook():
                         f"⏱ **ማሳሰቢያ፦** ይህ መልእክትና ሊንክ ለደህንነት ሲባል **ከ 7 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
                     ),
                     parse_mode="Markdown",
-                    protect_content=True  # Copy, Forward እና Screenshot ይከለክላል
+                    protect_content=True
                 ),
                 bot_loop
             ).result()
@@ -192,11 +233,11 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
         f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
-        f"2️⃣ ክፍያ ከፈጸሙ በኋላ የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።\n\n"
+        f"2️⃣ ክፍያ ከፈጸሙ በኋላ በምስሉ ላይ **በቀይ ሳጥን የተከበበውን የ Telebirr Transaction ID (Code)** Copy አድርገው በጽሁፍ ይላኩ።\n\n"
         f"🚨 **ዋና ማሳሰቢያ፦**\n"
         f"• እንዳይሳሳቱ **የ FPL የቡድን ስምዎን (Team Name)** በጽሁፍ ወይም **ስክሪንሾት (Screenshot)** አያይዘው መላክ አለብዎት!\n"
         f"• ከአንድ በላይ ቡድን (በተለየ Email) ማስመዝገብ ከፈለጉ ለእያንዳንዱ ቡድን የተለየ ክፍያና የቡድን ስም/ስክሪንሾት መላክ አለብዎት።\n\n"
-        f"🖼 **አላላኩን በፎቶዎቹ ላይ ማየት ይችላሉ👇**"
+        f"🖼 **እንዴት እንደሚላክ በምስሎቹ ላይ ማየት ይችላሉ☝️**"
     )
 
     if os.path.exists(PHOTO_PATH_1) and os.path.exists(PHOTO_PATH_2):
@@ -216,7 +257,7 @@ async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     standings_text = get_league_standings()
     await update.message.reply_text(standings_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
-# ፎቶ ሲላክ የሚስተናገድበት
+# ፎቶ ሲላክ የሚስተናገድበት (ወደ ግሩፕ ይላካል)
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     photo_file_id = update.message.photo[-1].file_id
@@ -236,13 +277,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         await context.bot.send_photo(
-            chat_id=ADMIN_ID,
+            chat_id=GROUP_CHAT_ID,
             photo=photo_file_id,
             caption=caption_text,
             parse_mode="Markdown"
         )
     except Exception as e:
-        print(f"Error sending photo to admin: {e}")
+        print(f"Error sending photo to group: {e}")
 
 # ጽሁፎች ሲላኩ የሚስተናገድበት
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,7 +301,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"ℹ️ **መመሪያ**\n\n"
             f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው Transaction ID እና የ FPL የቡድን ስም (በጽሁፍ ወይም በስክሪንሾት) መላክ አለብዎት።\n"
-            f"• አድሚን ለማናገር፦ {ADMIN_USERNAME}",
+            f"• ጥያቄ ካለዎት አድሚኖችን ለማናገር፦ {ADMIN_USERNAMES}",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
@@ -269,11 +310,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_username = (await context.bot.get_me()).username
         referral_link = f"https://t.me/{bot_username}?start={user_id}"
         count = len(user_referrals.get(user_id, []))
-        await update.message.reply_text(
-            f"👥 **ጓደኛ ይጋብዙ፦**\n`{referral_link}`\n\n📊 **የተመዘገቡት፦** {count}/10",
-            reply_markup=main_keyboard(),
-            parse_mode="Markdown"
+        
+        invite_text = (
+            f"👥 **ጓደኛዎን ይጋብዙ!**\n\n"
+            f"እነዚህን ደረጃዎች በመከተል ነፃ እድል ያግኙ፦\n"
+            f"1️⃣ ከታች ያለውን **የመጋበዣ ሊንክ Copy አድርገው** ለጓደኛዎ ይላኩ።\n"
+            f"2️⃣ ጓደኛዎ በሊንክዎ ገብቶ ሲመዘገብ የነፃ እድል ቁጥርዎ ይጨምራል!\n\n"
+            f"🔗 **የእርስዎ መጋበዣ ሊንክ፦**\n`{referral_link}`\n\n"
+            f"📊 **በእርስዎ ሊንክ የተመዘገቡ፦** {count}/10"
         )
+        await update.message.reply_text(invite_text, reply_markup=main_keyboard(), parse_mode="Markdown")
         return
     elif text == "🎁 ነፃ እድል":
         count = len(user_referrals.get(user_id, []))
@@ -298,6 +344,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
+        # Transaction ID ወደ ግሩፕ መላክ
+        try:
+            await context.bot.send_message(
+                chat_id=GROUP_CHAT_ID,
+                text=(
+                    f"💳 **አዲስ Transaction ID ደርሷል!**\n\n"
+                    f"🔢 **Tx ID፦** `{tx_id}`\n"
+                    f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
+                    f"🆔 **User ID፦** `{user.id}`"
+                ),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"Error sending Tx ID to group: {e}")
+
     else:
         # የ FPL የቡድን ስም በጽሁፍ ከተላከ
         user_fpl_names[user_id] = text
@@ -307,10 +368,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        # ለአድሚኑ መረጃውን መላክ
+        # ወደ ግሩፑ መረጃውን መላክ
         try:
             await context.bot.send_message(
-                chat_id=ADMIN_ID,
+                chat_id=GROUP_CHAT_ID,
                 text=(
                     f"📝 **አዲስ የ FPL Team Name (በጽሁፍ) ደርሷል!**\n\n"
                     f"⚽ **የቡድን ስም፦** `{text}`\n"
@@ -320,7 +381,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
         except Exception as e:
-            print(f"Error sending text to admin: {e}")
+            print(f"Error sending text to group: {e}")
 
 # --- Application setup ---
 bot_app = Application.builder().token(TOKEN).build()
