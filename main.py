@@ -81,7 +81,7 @@ def gregorian_to_ethiopian(dt):
 
     return eth_month, eth_day, eth_year
 
-# --- FPL Gameweek እና Deadline መረጃ ማግኛ (ሁለቱንም አቆጣጠር ጎን ለጎን ያሳያል) ---
+# --- FPL Gameweek እና Deadline መረጃ ማግኛ ---
 def get_current_gameweek_info():
     try:
         url = "https://fantasy.premierleague.com/api/bootstrap-static/"
@@ -179,7 +179,7 @@ def sms_webhook():
         if tx_id in pending_payments:
             user_id = pending_payments.pop(tx_id)
             
-            # 1. መላኪያ መልእክት (Copy, Forward እና Screenshot የተከለከለ)
+            # 1. መላኪያ መልእክት
             sent_msg = asyncio.run_coroutine_threadsafe(
                 bot_app.bot.send_message(
                     chat_id=user_id,
