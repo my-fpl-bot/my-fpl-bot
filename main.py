@@ -172,7 +172,8 @@ def home():
     return "FPL Bot is running successfully!", 200
 
 # --- Telebirr SMS Webhook (የተስተካከለ) ---
-@app.route('/sms_webhook', methods=['POST'])
+@app.route('/sms_webhook', methods=['POST'], strict_slashes=False)
+@app.route('/sms_webhook/', methods=['POST'], strict_slashes=False)
 def sms_webhook():
     try:
         gw_info = get_current_gameweek_info()
