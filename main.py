@@ -24,7 +24,7 @@ PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 # የ FPL ሊግ መረጃዎች
 FPL_LEAGUE_ID = "2309527"
 FPL_CODE = os.getenv("FPL_CODE", "v8v7fu")
-ENTRY_FEE = "50"
+ENTRY_FEE = "20"
 
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
 DAYS_AMHARIC = {
@@ -171,15 +171,21 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=420):
 def home():
     return "FPL Bot is running successfully!", 200
 
-# --- Telebirr SMS Webhook (የተስተካከለ) ---
-@app.route('/sms_webhook', methods=['POST'], strict_slashes=False)
-@app.route('/sms_webhook/', methods=['POST'], strict_slashes=False)
+# --- Telebirr SMS Webhook (GET & POST ድጋፍ ያለው) ---
+@app.route('/sms_webhook', methods=['GET', 'POST'], strict_slashes=False)
+@app.route('/sms_webhook/', methods=['GET', 'POST'], strict_slashes=False)
 def sms_webhook():
+    if request.method == 'GET':
+        return "SMS Webhook Endpoint is Active!", 200
+
     try:
         gw_info = get_current_gameweek_info()
         
-        # ከ SMS Forwarder አፕ የሚመጣውን JSON/Form ዳታ ማስተናገድ
-        data = request.get_json(force=True, silent=True) or request.form.to_dict() or {}
+        # ከተለያዩ አፖች የሚመጡ የ JSON፣ Form-Data፣ ወይም Plain Text መረጃዎችን ማስተናገድ
+        data = request.get_json(force=True, silent=True) or {}
+        if not data and request.form:
+            data = request.form.to_dict()
+            
         message = str(data.get('message', '') or data.get('text', '') or request.get_data(as_text=True))
         
         print(f"--> Received SMS Webhook: {message}")
