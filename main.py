@@ -23,7 +23,7 @@ PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 
 # የ FPL ሊግ መረጃዎች
 FPL_LEAGUE_ID = "2309527"
-FPL_CODE = "v8v7fu"
+FPL_CODE = os.getenv("FPL_CODE", "v8v7fu")
 ENTRY_FEE = "50"
 
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
@@ -133,7 +133,6 @@ def get_league_standings():
         standings = res.get('standings', {}).get('results', [])
         league_name = res.get('league', {}).get('name', 'ETHIO FANTASY')
         
-        # ቴሌግራም እንዳያበላሸው Underscore ን Escape ማድረግ
         escaped_link = CHANNEL_LINK.replace("_", r"\_")
 
         if not standings:
@@ -144,7 +143,7 @@ def get_league_standings():
             )
         
         text = f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
-        for player in standings[:10]:  # Top 10
+        for player in standings[:10]:
             rank = player.get('rank')
             entry_name = player.get('entry_name')
             player_name = player.get('player_name')
@@ -163,58 +162,64 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=420):
     await asyncio.sleep(delay_seconds)
     try:
         await bot_app.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        print(f"Message {message_id} deleted for user {chat_id}")
     except Exception as e:
         print(f"Error deleting message: {e}")
+
+# --- Flask Routes ---
+@app.route('/')
+def home():
+    return "FPL Bot is running successfully!", 200
 
 # --- Telebirr SMS Webhook (የተስተካከለ) ---
 @app.route('/sms_webhook', methods=['POST'])
 def sms_webhook():
-    gw_info = get_current_gameweek_info()
-    if not gw_info["is_open"]:
-        return "Deadline Passed", 200
+    try:
+        gw_info = get_current_gameweek_info()
+        
+        # ከ SMS Forwarder አፕ የሚመጣውን JSON/Form ዳታ ማስተናገድ
+        data = request.get_json(force=True, silent=True) or request.form.to_dict() or {}
+        message = str(data.get('message', '') or data.get('text', '') or request.get_data(as_text=True))
+        
+        print(f"--> Received SMS Webhook: {message}")
 
-    # ከ SMS Forwarder አፕ የሚመጣውን JSON ዳታ አቀባበል
-    data = request.get_json(force=True, silent=True) or request.form or {}
-    message = str(data.get('message', '') or data.get('text', ''))
-    
-    print(f"Webhook Received SMS: {message}")
+        tx_match = re.search(r'([A-Z0-9]{10,})', message)
+        if tx_match:
+            tx_id = tx_match.group(1).upper()
+            print(f"Extracted Tx ID: {tx_id}")
 
-    tx_match = re.search(r'([A-Z0-9]{10,})', message)
-    if tx_match:
-        tx_id = tx_match.group(1)
-        if tx_id in pending_payments:
-            user_id = pending_payments.pop(tx_id)
-            
-            # 1. መላኪያ መልእክት
-            sent_msg = asyncio.run_coroutine_threadsafe(
-                bot_app.bot.send_message(
-                    chat_id=user_id,
-                    text=(
-                        f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
-                        f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n\n"
-                        f"🔗 **ቀጥታ ለመቀላቀል ከታች ያለውን ሊንክ ይጫኑ፦**\n"
-                        f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}\n\n"
-                        f"⏱ **ማሳሰቢያ፦** ይህ መልእክትና ሊንክ ለደህንነት ሲባል **ከ 7 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
+            if tx_id in pending_payments:
+                user_id = pending_payments.pop(tx_id)
+                
+                # 1. የመግቢያ ሊንክ መልእክት መላክ
+                sent_msg = asyncio.run_coroutine_threadsafe(
+                    bot_app.bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
+                            f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n\n"
+                            f"🔗 **ቀጥታ ለመቀላቀል ከታች ያለውን ሊንክ ይጫኑ፦**\n"
+                            f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}\n\n"
+                            f"⏱ **ማሳሰቢያ፦** ይህ መልእክትና ሊንክ ለደህንነት ሲባል **ከ 7 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
+                        ),
+                        parse_mode="Markdown",
+                        protect_content=True
                     ),
-                    parse_mode="Markdown",
-                    protect_content=True
-                ),
-                bot_loop
-            ).result()
+                    bot_loop
+                ).result()
 
-            # 2. ከ 7 ደቂቃ በኋላ መልእክቱን ማጥፋት
-            asyncio.run_coroutine_threadsafe(
-                delete_message_after_delay(user_id, sent_msg.message_id, 420),
-                bot_loop
-            )
+                # 2. ከ 7 ደቂቃ በኋላ መልእክቱን ማጥፋት
+                asyncio.run_coroutine_threadsafe(
+                    delete_message_after_delay(user_id, sent_msg.message_id, 420),
+                    bot_loop
+                )
 
-            return {"status": "success", "message": "Payment verified"}, 200
-            
-    return {"status": "success", "message": "SMS received but no match"}, 200
+                return "OK", 200
 
-@app.route('/')
-def home():
-    return "FPL Bot is running successfully!", 200
+        return "OK", 200
+    except Exception as e:
+        print(f"Error handling SMS Webhook: {e}")
+        return "OK", 200
 
 # --- Telegram Bot Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -340,7 +345,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Transaction ID ከተላከ
     tx_match = re.search(r'([A-Z0-9]{10,})', text)
     if tx_match:
-        tx_id = tx_match.group(1)
+        tx_id = tx_match.group(1).upper()
         pending_payments[tx_id] = user_id
 
         await update.message.reply_text(
@@ -389,7 +394,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print(f"Error sending text to group: {e}")
 
-# --- Application setup ---
+# --- Application setup & Background Runner ---
 bot_app = Application.builder().token(TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("rank", rank_command))
@@ -406,8 +411,10 @@ def run_telegram_bot():
     bot_loop.run_forever()
 
 if __name__ == '__main__':
+    # Start Telegram Bot in Thread
     t = threading.Thread(target=run_telegram_bot, daemon=True)
     t.start()
     
+    # Start Flask Web Server
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
