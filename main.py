@@ -11,11 +11,11 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # =========================================================
 # ⚠️ Configs & IDs
 # =========================================================
-TOKEN = os.getenv("BOT_TOKEN", "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0")
+TOKEN = os.getenv("BOT_TOKEN", "8653645989:AAG4dvmb5p6baKZBiA1Mzcd_wfvZxPvgO74")
 TELEBIRR_NO = "0925358925"
 ADMIN_USERNAMES = "@mst10m ወይም @ATCITYZEN"
 CHANNEL_LINK = "https://t.me/ETHIO_FANTASY_1"
-GROUP_CHAT_ID = -1002391954418  # የግሩፕ ID
+CONFIRMATION_GROUP_ID = -1002391954418  # ክፍያ ሲረጋገጥ ብቻ መረጃ የሚላክበት የግሩፕ/ቻናል ID
 
 # የፎቶዎች ስም በ GitHub ላይ
 PHOTO_PATH_1 = "photo_2026-09-06_22-09-38.jpg"
@@ -39,11 +39,12 @@ MONTHS_AMHARIC = {
     "September": "መስከረም", "October": "ጥቅምት", "November": "ሕዳር", "December": "ታኅሣሥ"
 }
 
-# ዳታዎችን ጊዜያዊ ማከማቻ
-pending_payments = {}  # {tx_id: user_id}
-user_fpl_names = {}    # {user_id: fpl_team_name}
-user_referrals = {}    # {user_id: [referred_user_ids]}
-user_invited_by = {}   # {user_id: referrer_user_id}
+# ዳታዎችን ጊዜያዊ ማከማቻ (ክፍያ እስኪረጋገጥ ድረስ)
+pending_payments = {}    # {tx_id: user_id}
+user_fpl_names = {}      # {user_id: fpl_team_name}
+user_screenshots = {}    # {user_id: photo_file_id}
+user_referrals = {}      # {user_id: [referred_user_ids]}
+user_invited_by = {}     # {user_id: referrer_user_id}
 
 app = Flask(__name__)
 
@@ -98,11 +99,9 @@ def get_current_gameweek_info():
                 if now_utc < close_time:
                     eat_time = deadline_dt + timedelta(hours=3)
                     
-                    # 1. የአማርኛ/ኢትዮጵያ ቀን
                     day_amharic = DAYS_AMHARIC.get(eat_time.strftime("%A"), eat_time.strftime("%A"))
                     eth_month, eth_day, eth_year = gregorian_to_ethiopian(eat_time)
                     
-                    # 2. የEnglish/Gregorian ቀን
                     day_english = eat_time.strftime("%A")
                     greg_month_short = eat_time.strftime("%b")
                     greg_day = eat_time.strftime("%d")
@@ -171,7 +170,7 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=420):
 def home():
     return "FPL Bot is running successfully!", 200
 
-# --- Telebirr SMS Webhook (GET & POST ድጋፍ ያለው) ---
+# --- Telebirr SMS Webhook (ክፍያ ሲረጋገጥ ብቻ ወደ ቻናል መረጃ የሚላክበት) ---
 @app.route('/sms_webhook', methods=['GET', 'POST'], strict_slashes=False)
 @app.route('/sms_webhook/', methods=['GET', 'POST'], strict_slashes=False)
 def sms_webhook():
@@ -180,14 +179,11 @@ def sms_webhook():
 
     try:
         gw_info = get_current_gameweek_info()
-        
-        # ከተለያዩ አፖች የሚመጡ የ JSON፣ Form-Data፣ ወይም Plain Text መረጃዎችን ማስተናገድ
         data = request.get_json(force=True, silent=True) or {}
         if not data and request.form:
             data = request.form.to_dict()
             
         message = str(data.get('message', '') or data.get('text', '') or request.get_data(as_text=True))
-        
         print(f"--> Received SMS Webhook: {message}")
 
         tx_match = re.search(r'([A-Z0-9]{10,})', message)
@@ -197,8 +193,10 @@ def sms_webhook():
 
             if tx_id in pending_payments:
                 user_id = pending_payments.pop(tx_id)
-                
-                # 1. የመግቢያ ሊንክ መልእክት መላክ
+                team_name = user_fpl_names.pop(user_id, "አልተጠቀሰም")
+                photo_id = user_screenshots.pop(user_id, None)
+
+                # 1. የመግቢያ ሊንክ ለተጠቃሚው በግል መላክ
                 sent_msg = asyncio.run_coroutine_threadsafe(
                     bot_app.bot.send_message(
                         chat_id=user_id,
@@ -215,11 +213,47 @@ def sms_webhook():
                     bot_loop
                 ).result()
 
-                # 2. ከ 7 ደቂቃ በኋላ መልእክቱን ማጥፋት
                 asyncio.run_coroutine_threadsafe(
                     delete_message_after_delay(user_id, sent_msg.message_id, 420),
                     bot_loop
                 )
+
+                # 2. የተረጋገጠውን መረጃ ብቻ ወደ ማረጋገጫ ቻናል/ግሩፕ መላክ
+                user_info = asyncio.run_coroutine_threadsafe(
+                    bot_app.bot.get_chat(user_id),
+                    bot_loop
+                ).result()
+                
+                full_name = user_info.full_name if user_info else "ተጠቃሚ"
+                username = f"@{user_info.username}" if user_info and user_info.username else "የለውም"
+
+                admin_msg = (
+                    f"✅ **አዲስ የተረጋገጠ ክፍያ ደርሷል!**\n\n"
+                    f"👤 **ተጠቃሚ፦** {full_name} ({username})\n"
+                    f"🆔 **User ID፦** `{user_id}`\n"
+                    f"🔢 **Tx ID፦** `{tx_id}`\n"
+                    f"⚽ **የ FPL ቡድን ስም፦** `{team_name}`"
+                )
+
+                if photo_id:
+                    asyncio.run_coroutine_threadsafe(
+                        bot_app.bot.send_photo(
+                            chat_id=CONFIRMATION_GROUP_ID,
+                            photo=photo_id,
+                            caption=admin_msg,
+                            parse_mode="Markdown"
+                        ),
+                        bot_loop
+                    )
+                else:
+                    asyncio.run_coroutine_threadsafe(
+                        bot_app.bot.send_message(
+                            chat_id=CONFIRMATION_GROUP_ID,
+                            text=admin_msg,
+                            parse_mode="Markdown"
+                        ),
+                        bot_loop
+                    )
 
                 return "OK", 200
 
@@ -231,7 +265,6 @@ def sms_webhook():
 # --- Telegram Bot Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gw_info = get_current_gameweek_info()
-    
     welcome_text = (
         f"👋 **እንኳን ወደ FPL ውድድር ቦት በደህና መጡ!**\n\n"
         f"⚽ **የአሁኑ ውድድር፦** {gw_info['gw_name']}\n"
@@ -275,39 +308,23 @@ async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     standings_text = get_league_standings()
     await update.message.reply_text(standings_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
-# ፎቶ ሲላክ የሚስተናገድበት (ወደ ግሩፕ ይላካል)
+# ፎቶ ሲላክ የሚስተናገድበት (ቀጥታ ወደ ግሩፕ አይላክም፤ ጊዜያዊ ማከማቻ ይቀመጣል)
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
+    user_id = update.message.chat_id
     photo_file_id = update.message.photo[-1].file_id
+    user_screenshots[user_id] = photo_file_id
     
     await update.message.reply_text(
-        "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ደርሶናል!**\n\n"
-        "አሁን ደግሞ እባክዎን የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
+        "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ተመዝግቧል!**\n\n"
+        "አሁን ደግሞ እባክዎን የ Telebirr **Transaction ID** በጽሁፍ ይላኩ። (ክፍያዎ ሲረጋገጥ መግቢያ ሊንኩ ይላክልዎታል)",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
-
-    caption_text = (
-        f"📥 **አዲስ የ FPL Team Screenshot ደርሷል!**\n\n"
-        f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
-        f"🆔 **User ID፦** `{user.id}`"
-    )
-    
-    try:
-        await context.bot.send_photo(
-            chat_id=GROUP_CHAT_ID,
-            photo=photo_file_id,
-            caption=caption_text,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        print(f"Error sending photo to group: {e}")
 
 # ጽሁፎች ሲላኩ የሚስተናገድበት
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.chat_id
-    user = update.message.from_user
     
     if text in ["💳 ለመክፈል", "⚽ የመግቢያ ኮድ ለመቀበል"]:
         await pay_instruction(update, context)
@@ -349,7 +366,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ የዚህ Gameweek የመመዝገቢያ ሰዓት አልፏል።", reply_markup=main_keyboard())
         return
 
-    # Transaction ID ከተላከ
     tx_match = re.search(r'([A-Z0-9]{10,})', text)
     if tx_match:
         tx_id = tx_match.group(1).upper()
@@ -358,27 +374,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
             f"📌 የ FPL የቡድን ስምዎን በጽሁፍ ወይም በስክሪንሾት ካልላኩ እባክዎን አሁኑኑ ይላኩ።\n\n"
-            f"🚨 **ዋና ማሳሰቢያ፦** የ Telebirr SMS እንደደረሰን የሊጉ መግቢያ ሊንክ ይላክሎታል። ሊንኩ እንደደረሰዎት **በ 7 ደቂቃ ውስጥ** ተጭነው መቀላቀል አለብዎት! ከ 7 ደቂቃ በኋላ መልእክቱ ለደህንነት ሲባል በራስ-ሰር ይፊቃል።",
+            f"⏳ **የክፍያ ማረጋገጫ፦** የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ሊንክ ይላክሎታል። ሊንኩ እንደደረሰዎት **በ 7 ደቂቃ ውስጥ** ተጭነው መቀላቀል አለብዎት!",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        # Transaction ID ወደ ግሩፕ መላክ
-        try:
-            await context.bot.send_message(
-                chat_id=GROUP_CHAT_ID,
-                text=(
-                    f"💳 **አዲስ Transaction ID ደርሷል!**\n\n"
-                    f"🔢 **Tx ID፦** `{tx_id}`\n"
-                    f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
-                    f"🆔 **User ID፦** `{user.id}`"
-                ),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Error sending Tx ID to group: {e}")
-
     else:
-        # የ FPL የቡድን ስም በጽሁፍ ከተላከ
         user_fpl_names[user_id] = text
         await update.message.reply_text(
             f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
@@ -386,20 +386,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        # ወደ ግሩፑ መረጃውን መላክ
-        try:
-            await context.bot.send_message(
-                chat_id=GROUP_CHAT_ID,
-                text=(
-                    f"📝 **አዲስ የ FPL Team Name (በጽሁፍ) ደርሷል!**\n\n"
-                    f"⚽ **የቡድን ስም፦** `{text}`\n"
-                    f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
-                    f"🆔 **User ID፦** `{user.id}`"
-                ),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Error sending text to group: {e}")
 
 # --- Application setup & Background Runner ---
 bot_app = Application.builder().token(TOKEN).build()
@@ -418,10 +404,8 @@ def run_telegram_bot():
     bot_loop.run_forever()
 
 if __name__ == '__main__':
-    # Start Telegram Bot in Thread
     t = threading.Thread(target=run_telegram_bot, daemon=True)
     t.start()
     
-    # Start Flask Web Server
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
