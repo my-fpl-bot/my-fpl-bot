@@ -219,41 +219,44 @@ def sms_webhook():
                 )
 
                 # 2. የተረጋገጠውን መረጃ ብቻ ወደ ማረጋገጫ ቻናል/ግሩፕ መላክ
-                user_info = asyncio.run_coroutine_threadsafe(
-                    bot_app.bot.get_chat(user_id),
-                    bot_loop
-                ).result()
-                
-                full_name = user_info.full_name if user_info else "ተጠቃሚ"
-                username = f"@{user_info.username}" if user_info and user_info.username else "የለውም"
-
-                admin_msg = (
-                    f"✅ **አዲስ የተረጋገጠ ክፍያ ደርሷል!**\n\n"
-                    f"👤 **ተጠቃሚ፦** {full_name} ({username})\n"
-                    f"🆔 **User ID፦** `{user_id}`\n"
-                    f"🔢 **Tx ID፦** `{tx_id}`\n"
-                    f"⚽ **የ FPL ቡድን ስም፦** `{team_name}`"
-                )
-
-                if photo_id:
-                    asyncio.run_coroutine_threadsafe(
-                        bot_app.bot.send_photo(
-                            chat_id=CONFIRMATION_GROUP_ID,
-                            photo=photo_id,
-                            caption=admin_msg,
-                            parse_mode="Markdown"
-                        ),
+                try:
+                    user_info = asyncio.run_coroutine_threadsafe(
+                        bot_app.bot.get_chat(user_id),
                         bot_loop
+                    ).result()
+                    
+                    full_name = user_info.full_name if user_info else "ተጠቃሚ"
+                    username = f"@{user_info.username}" if user_info and user_info.username else "የለውም"
+
+                    admin_msg = (
+                        f"✅ **አዲስ የተረጋገጠ ክፍያ ደርሷል!**\n\n"
+                        f"👤 **ተጠቃሚ፦** {full_name} ({username})\n"
+                        f"🆔 **User ID፦** `{user_id}`\n"
+                        f"🔢 **Tx ID፦** `{tx_id}`\n"
+                        f"⚽ **የ FPL ቡድን ስም፦** `{team_name}`"
                     )
-                else:
-                    asyncio.run_coroutine_threadsafe(
-                        bot_app.bot.send_message(
-                            chat_id=CONFIRMATION_GROUP_ID,
-                            text=admin_msg,
-                            parse_mode="Markdown"
-                        ),
-                        bot_loop
-                    )
+
+                    if photo_id:
+                        asyncio.run_coroutine_threadsafe(
+                            bot_app.bot.send_photo(
+                                chat_id=CONFIRMATION_GROUP_ID,
+                                photo=photo_id,
+                                caption=admin_msg,
+                                parse_mode="Markdown"
+                            ),
+                            bot_loop
+                        )
+                    else:
+                        asyncio.run_coroutine_threadsafe(
+                            bot_app.bot.send_message(
+                                chat_id=CONFIRMATION_GROUP_ID,
+                                text=admin_msg,
+                                parse_mode="Markdown"
+                            ),
+                            bot_loop
+                        )
+                except Exception as e:
+                    print(f"Error sending to group: {e}")
 
                 return "OK", 200
 
@@ -284,11 +287,11 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
         f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
-        f"2️⃣ ክፍያ ከፈጸሙ በኋላ በምስሉ ላይ **በቀይ ሳጥን የተከበበውን የ Telebirr Transaction ID (Code)** Copy አድርገው በጽሁፍ ይላኩ።\n\n"
-        f"🚨 **ዋና ማሳሰቢያ፦**\n"
-        f"• እንዳይሳሳቱ **የ FPL የቡድን ስምዎን (Team Name)** በጽሁፍ ወይም **ስክሪንሾት (Screenshot)** አያይዘው መላክ አለብዎት!\n"
-        f"• ከአንድ በላይ ቡድን (በተለየ Email) ማስመዝገብ ከፈለጉ ለእያንዳንዱ ቡድን የተለየ ክፍያና የቡድን ስም/ስክሪንሾት መላክ አለብዎት።\n\n"
-        f"🖼 **እንዴት እንደሚላክ በምስሎቹ ላይ ማየት ይችላሉ☝️**"
+        f"🚨 **መረጃዎችን በሚከተለው ቅደም-ተከተል ብቻ ይላኩ፦**\n\n"
+        f"1️⃣ **መጀመሪያ፦** የ FPL የቡድን ስምዎን (Team Name) በጽሁፍ ይላኩ።\n"
+        f"2️⃣ **በመቀጠል፦** ከ Telebirr የደረሶትን **Transaction ID** በጽሁፍ ይላኩ።\n"
+        f"3️⃣ **በመጨረሻም፦** የ FPL የቡድን ስምዎን **ስክሪንሾት (Screenshot)** ይላኩ።\n\n"
+        f"⏱ **ማሳሰቢያ፦** የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ሊንክ በግል ይላክሎታል። ሊንኩ በደረሰዎት **በ 7 ደቂቃ ውስጥ** ተጭነው መቀላቀል አለብዎት!"
     )
 
     if os.path.exists(PHOTO_PATH_1) and os.path.exists(PHOTO_PATH_2):
@@ -308,7 +311,7 @@ async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     standings_text = get_league_standings()
     await update.message.reply_text(standings_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
-# ፎቶ ሲላክ የሚስተናገድበት (ቀጥታ ወደ ግሩፕ አይላክም፤ ጊዜያዊ ማከማቻ ይቀመጣል)
+# ፎቶ ሲላክ የሚስተናገድበት
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat_id
     photo_file_id = update.message.photo[-1].file_id
@@ -316,7 +319,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ተመዝግቧል!**\n\n"
-        "አሁን ደግሞ እባክዎን የ Telebirr **Transaction ID** በጽሁፍ ይላኩ። (ክፍያዎ ሲረጋገጥ መግቢያ ሊንኩ ይላክልዎታል)",
+        "ክፍያዎ ከቪያለ በሁዋላ የ Telebirr SMS እንደደረሰን የመግቢያ ሊንኩ ይላክልዎታል።",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
@@ -335,7 +338,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "ℹ️ መመሪያ":
         await update.message.reply_text(
             f"ℹ️ **መመሪያ**\n\n"
-            f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው Transaction ID እና የ FPL የቡድን ስም (በጽሁፍ ወይም በስክሪንሾት) መላክ አለብዎት።\n"
+            f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው ደረጃዎቹን ተከትለው መረጃዎችን ይላኩ።\n"
             f"• ጥያቄ ካለዎት አድሚኖችን ለማናገር፦ {ADMIN_USERNAMES}",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
@@ -373,7 +376,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
-            f"📌 የ FPL የቡድን ስምዎን በጽሁፍ ወይም በስክሪንሾት ካልላኩ እባክዎን አሁኑኑ ይላኩ።\n\n"
+            f"📌 አሁን ደግሞ የ FPL የቡድንዎን **ስክሪንሾት (Screenshot)** ይላኩ።\n\n"
             f"⏳ **የክፍያ ማረጋገጫ፦** የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ሊንክ ይላክሎታል። ሊንኩ እንደደረሰዎት **በ 7 ደቂቃ ውስጥ** ተጭነው መቀላቀል አለብዎት!",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
@@ -382,7 +385,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_fpl_names[user_id] = text
         await update.message.reply_text(
             f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
-            f"አሁን ደግሞ ክፍያ ፈጽመው የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
+            f"አሁን በመቀጠል ከ Telebirr የደረሶትን **Transaction ID** በጽሁፍ ይላኩ።",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
