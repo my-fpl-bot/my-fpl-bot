@@ -23,8 +23,8 @@ PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 
 # የ FPL ሊግ መረጃዎች
 FPL_LEAGUE_ID = "2309527"
-FPL_CODE = os.getenv("FPL_CODE", "v8v7fu")
-ENTRY_FEE = "20"
+FPL_CODE = os.getenv("FPL_CODE", "w90c98")
+ENTRY_FEE = "50"
 
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
 DAYS_AMHARIC = {
@@ -281,8 +281,9 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     instruction_text = (
         f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
-        f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
+        f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **ትክክለኛውን {ENTRY_FEE} ብር ብቻ** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
+        f"⚠️ **ማሳሰቢያ፦** የመግቢያ ክፍያው **በትክክል {ENTRY_FEE} ብር ብቻ** መሆን አለበት። ከ {ENTRY_FEE} ብር በታች ከተላከ ክፍያው አይቀበለውም።\n\n"
         f"🚨 **መረጃዎችን በሚከተለው ቅደም-ተከተል ብቻ ይላኩ፦**\n\n"
         f"1️⃣ **መጀመሪያ፦** የ FPL የቡድን ስምዎን (Team Name) በጽሁፍ ይላኩ።\n"
         f"2️⃣ **በመቀጠል፦** ከ Telebirr የደረሶትን **Transaction ID** በጽሁፍ ይላኩ።\n"
@@ -332,7 +333,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "ℹ️ መመሪያ":
         await update.message.reply_text(
             f"ℹ️ **መመሪያ**\n\n"
-            f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው ደረጃዎቹን ተከትለው መረጃዎችን ይላኩ።\n"
+            f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው (በትክክል {ENTRY_FEE} ብር) ደረጃዎቹን ተከትለው መረጃዎችን ይላኩ።\n"
             f"• ጥያቄ ካለዎት አድሚኖችን ለማናገር፦ {ADMIN_USERNAMES}",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
