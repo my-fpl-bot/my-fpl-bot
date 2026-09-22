@@ -5,7 +5,7 @@ import threading
 import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from telegram import Update, ReplyKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =========================================================
@@ -13,17 +13,16 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # =========================================================
 TOKEN = os.getenv("BOT_TOKEN", "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0")
 TELEBIRR_NO = "0925358925"
-ADMIN_USERNAME = "mst10m"  # ያለ @ ምልክት አድሚን ዩዘርኔም
 ADMIN_USERNAMES = "@mst10m ወይም @ATCITYZEN"
 CHANNEL_LINK = "https://t.me/ETHIO_FANTASY_1"
-GROUP_CHAT_ID = -1002391954418  # የግሩፕ ID
+GROUP_CHAT_ID = -1002391954418  # ክፍያ ሲረጋገጥ ብቻ መረጃ የሚላክበት ግሩፕ ID
 
 # የፎቶዎች ስም በ GitHub ላይ
 PHOTO_PATH_1 = "photo_2026-09-06_22-09-38.jpg"
 PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 
 # የ FPL ሊግ መረጃዎች
-FPL_LEAGUE_ID = "2276766"
+FPL_LEAGUE_ID = os.getenv("FPL_LEAGUE_ID", "2309527")
 FPL_CODE = os.getenv("FPL_CODE", "v8v7fu")
 ENTRY_FEE = "50"
 
@@ -40,11 +39,12 @@ MONTHS_AMHARIC = {
     "September": "መስከረም", "October": "ጥቅምት", "November": "ሕዳር", "December": "ታኅሣሥ"
 }
 
-# ዳታዎችን ጊዜያዊ ማከማቻ
-pending_payments = {}  # {tx_id: {"user_id": user_id, "user_name": name, "username": username}}
-user_fpl_names = {}    # {user_id: fpl_team_name}
-user_referrals = {}    # {user_id: [referred_user_ids]}
-user_invited_by = {}   # {user_id: referrer_user_id}
+# ዳታዎችን ማከማቻ
+pending_payments = {}         # {tx_id: user_id} -> ተጠቃሚው አስቀድሞ Tx ID ሲልክ
+received_telebirr_smes = set() # {tx_id1, tx_id2, ...} -> SMS ቀድሞ ሲደርስ የተመዘገቡ Tx IDዎች
+user_fpl_names = {}           # {user_id: fpl_team_name}
+user_screenshots = {}         # {user_id: photo_file_id}
+user_referrals = {}           # {user_id: [referred_user_ids]}
 
 app = Flask(__name__)
 
@@ -127,22 +127,22 @@ def get_current_gameweek_info():
 # --- FPL Standings / Rank ማግኛ ---
 def get_league_standings():
     try:
-        h2h_url = f"https://fantasy.premierleague.com/api/leagues-h2h/{FPL_LEAGUE_ID}/standings/"
-        res = requests.get(h2h_url, timeout=10)
+        classic_url = f"https://fantasy.premierleague.com/api/leagues-classic/{FPL_LEAGUE_ID}/standings/"
+        res = requests.get(classic_url, timeout=10)
         
         if res.status_code == 200:
             data = res.json()
             standings = data.get('standings', {}).get('results', [])
             league_name = data.get('league', {}).get('name', 'ETHIO FANTASY')
-            is_h2h = True
+            is_h2h = False
         else:
-            classic_url = f"https://fantasy.premierleague.com/api/leagues-classic/{FPL_LEAGUE_ID}/standings/"
-            res = requests.get(classic_url, timeout=10)
+            h2h_url = f"https://fantasy.premierleague.com/api/leagues-h2h/{FPL_LEAGUE_ID}/standings/"
+            res = requests.get(h2h_url, timeout=10)
             data = res.json()
             standings = data.get('standings', {}).get('results', [])
             league_name = data.get('league', {}).get('name', 'ETHIO FANTASY')
-            is_h2h = False
-        
+            is_h2h = True
+
         escaped_link = CHANNEL_LINK.replace("_", r"\_")
 
         if not standings:
@@ -183,90 +183,104 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=600):
     except Exception as e:
         print(f"Error deleting message: {e}")
 
+# --- የመግቢያ ሊንክ ለተጠቃሚ የመላክ እና ወደ ግሩፕ የማስተላለፍ ስራ ---
+def process_successful_payment(user_id, tx_id):
+    gw_info = get_current_gameweek_info()
+    team_name = user_fpl_names.pop(user_id, "አልተጠቀሰም")
+    photo_id = user_screenshots.pop(user_id, None)
+
+    # 1. የመግቢያ ሊንክና ኮድ ለተጠቃሚው በግል መላክ
+    sent_msg = asyncio.run_coroutine_threadsafe(
+        bot_app.bot.send_message(
+            chat_id=user_id,
+            text=(
+                f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
+                f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n\n"
+                f"🔑 **የመግቢያ ኮድ (Code)፦**\n`{FPL_CODE}`\n"
+                f"*(ከላይ ያለውን ኮድ በመንካት በቀላሉ Copy ማድረግ ይችላሉ)*\n\n"
+                f"🔗 **ቀጥታ ለመቀላቀል ከታች ያለውን ሊንክ ይጫኑ፦**\n"
+                f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}\n\n"
+                f"⏱ **ማሳሰቢያ፦** ይህ መልእክትና ሊንክ ለደህንነት ሲባል **ከ 10 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
+            ),
+            parse_mode="Markdown",
+            protect_content=True
+        ),
+        bot_loop
+    ).result()
+
+    # ከ 10 ደቂቃ በኋላ መልእክቱን ማጥፋት
+    asyncio.run_coroutine_threadsafe(
+        delete_message_after_delay(user_id, sent_msg.message_id, 600),
+        bot_loop
+    )
+
+    # 2. የተረጋገጠውን መረጃ ወደ አድሚን ግሩፕ መላክ
+    try:
+        user_info = asyncio.run_coroutine_threadsafe(
+            bot_app.bot.get_chat(user_id),
+            bot_loop
+        ).result()
+        
+        full_name = user_info.full_name if user_info else "ተጠቃሚ"
+        username = f"@{user_info.username}" if user_info and user_info.username else "የለውም"
+
+        admin_msg = (
+            f"✅ **አዲስ የተረጋገጠ ክፍያና ምዝገባ!**\n\n"
+            f"👤 **ተጠቃሚ፦** {full_name} ({username})\n"
+            f"🆔 **User ID፦** `{user_id}`\n"
+            f"🔢 **Tx ID፦** `{tx_id}`\n"
+            f"⚽ **የ FPL ቡድን ስም፦** `{team_name}`"
+        )
+
+        if photo_id:
+            asyncio.run_coroutine_threadsafe(
+                bot_app.bot.send_photo(chat_id=GROUP_CHAT_ID, photo=photo_id, caption=admin_msg, parse_mode="Markdown"),
+                bot_loop
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                bot_app.bot.send_message(chat_id=GROUP_CHAT_ID, text=admin_msg, parse_mode="Markdown"),
+                bot_loop
+            )
+    except Exception as e:
+        print(f"Error sending to group: {e}")
+
 # --- Flask Routes ---
 @app.route('/')
 def home():
     return "FPL Bot is running successfully!", 200
 
 # --- Telebirr SMS Webhook ---
-@app.route('/sms_webhook', methods=['POST'])
+@app.route('/sms_webhook', methods=['GET', 'POST'], strict_slashes=False)
+@app.route('/sms_webhook/', methods=['GET', 'POST'], strict_slashes=False)
 def sms_webhook():
+    if request.method == 'GET':
+        return "SMS Webhook Endpoint is Active!", 200
+
     try:
-        gw_info = get_current_gameweek_info()
+        data = request.get_json(force=True, silent=True) or {}
+        if not data and request.form:
+            data = request.form.to_dict()
+            
+        full_message = str(data.get('message', '') or data.get('text', '') or request.get_data(as_text=True))
+        print(f"--> Received Full Webhook Content: {full_message}")
+
+        # SMS ውስጥ ያሉትን Tx IDዎች መፈለግ
+        found_ids = re.findall(r'[A-Za-z0-9]{8,}', full_message)
         
-        data = request.get_json(force=True, silent=True) or request.form.to_dict() or {}
-        message = str(data.get('message', '') or data.get('text', '') or request.get_data(as_text=True))
-        
-        print(f"--> Received SMS Webhook: {message}")
+        for tx in found_ids:
+            tx_upper = tx.upper()
+            # 1. SMS የመጣውን Tx ID በጊዜያዊ ማከማቻ ውስጥ መመዝገብ
+            received_telebirr_smes.add(tx_upper)
 
-        tx_match = re.search(r'([A-Z0-9]{10,})', message)
-        if tx_match:
-            tx_id = tx_match.group(1).upper()
-            print(f"Extracted Tx ID: {tx_id}")
-
-            if tx_id in pending_payments:
-                user_info = pending_payments.pop(tx_id)
-                user_id = user_info["user_id"]
-                full_name = user_info["user_name"]
-                username = user_info["username"]
-                fpl_team = user_fpl_names.get(user_id, "አልተጠቀሰም")
-
-                # የ ቻናል ቁልፍ + የአድሚን ማናገሪያ ቁልፍ
-                success_keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎁 ቻናላችንን ይቀላቀሉ & ሽልማት ይውሰዱ", url=CHANNEL_LINK)],
-                    [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
-                ])
-
-                sent_msg = asyncio.run_coroutine_threadsafe(
-                    bot_app.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"🎉 **ምዝገባዎ በስኬት ተጠናቋል!**\n\n"
-                            f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
-                            f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n\n"
-                            f"🔑 **የመግቢያ ኮድ (Code)፦**\n`{FPL_CODE}`\n"
-                            f"*(ከላይ ያለውን ኮድ በመንካት/በመጫን በቀላሉ Copy ማድረግ ይችላሉ)*\n\n"
-                            f"🔗 **ወይም በሊንክ ቀጥታ ለመቀላቀል፦**\n"
-                            f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}\n\n"
-                            f"📌 **ሊንኩን ከተቀላቀሉ በኋላ፦**\n"
-                            f"1️⃣ **ደረጃ ለማወቅ፦** በቦቱ ሜኑ ላይ **«📊 የሊግ ደረጃዎች (Rank)»** የሚለውን በመጫን አጠቃላይ ደረጃዎትን ማየት ይችላሉ።\n"
-                            f"2️⃣ **ሽልማት ለመቀበል፦** ከታች ያለውን ቁልፍ ተጭነው **የቴሌግራም ቻናላችንን ይቀላቀሉ!** የጨዋታ ሳምንት ሲጠናቀቅ አሸናፊዎች የሚገለጹበት እና ሽልማት የሚላክበት በቻናሉ ነው።\n\n"
-                            f"❓ **ማሳሰቢያ፦** የመግቢያ ሊንኩ/ኮዱ እምቢ ካለዎት፣ ካልሰራዎት ወይም ምንም ዓይነት ችግር ካጋጠመዎት ከታች ያለውን **«💬 አድሚንን ለማናገር»** የሚለውን ቁልፍ ተጭነው ማናገር ይችላሉ።\n\n"
-                            f"⏱ **ደህንነት፦** ይህ የመግቢያ ኮድ ያለበት መልእክት **ከ 10 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
-                        ),
-                        reply_markup=success_keyboard,
-                        parse_mode="Markdown",
-                        protect_content=True
-                    ),
-                    bot_loop
-                ).result()
-
-                # ከ 10 ደቂቃ በኋላ ማጥፋት
-                asyncio.run_coroutine_threadsafe(
-                    delete_message_after_delay(user_id, sent_msg.message_id, 600),
-                    bot_loop
-                )
-
-                # ወደ አድሚን ግሩፕ መላክ
-                asyncio.run_coroutine_threadsafe(
-                    bot_app.bot.send_message(
-                        chat_id=GROUP_CHAT_ID,
-                        text=(
-                            f"🎉 **አዲስ የተሳካ ምዝገባ እና ክፍያ!**\n\n"
-                            f"👤 **ተወዳዳሪ፦** {full_name} (@{username if username else 'የለውም'})\n"
-                            f"🆔 **User ID፦** `{user_id}`\n"
-                            f"⚽ **FPL Team Name፦** `{fpl_team}`\n"
-                            f"🔢 **Tx ID፦** `{tx_id}`\n"
-                            f"✅ **ሁኔታ፦** ክፍያው ተረጋግጦ የሊጉ መግቢያ ሊንክ ተልኮለታል።"
-                        ),
-                        parse_mode="Markdown"
-                    ),
-                    bot_loop
-                )
-
-                return "OK", 200
+            # 2. ተጠቃሚው ቀድሞ ይሄንን Tx ID ልኮ እንደሆነ ማረጋገጥ
+            if tx_upper in pending_payments:
+                matched_user_id = pending_payments.pop(tx_upper)
+                print(f"✅ MATCH FOUND VIA SMS! Tx ID: {tx_upper} for User: {matched_user_id}")
+                process_successful_payment(matched_user_id, tx_upper)
 
         return "OK", 200
+
     except Exception as e:
         print(f"Error handling SMS Webhook: {e}")
         return "OK", 200
@@ -291,15 +305,14 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     instruction_text = (
-        f"💳 **የክፍያና ምዝገባ ደረጃዎች (ተከተሉ)፦**\n\n"
-        f"1️⃣ **መጀመሪያ፦** በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
+        f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
+        f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
-        f"2️⃣ **ሁለተኛ፦** **የ FPL የቡድን ስምዎን (Team Name)** በጽሁፍ ይላኩልን ወይም በምስል (Screenshot) አያይዘው ይላኩ።\n\n"
-        f"3️⃣ **ሦስተኛ፦** ክፍያ እንደፈጸሙ ከ Telebirr የደረሰዎትን **Transaction ID (Code)** በጽሁፍ ይላኩ።\n\n"
-        f"🚨 **ዋና ማሳሰቢያ፦**\n"
-        f"• **በመጀመሪያ የ FPL ቡድን ስምዎን በመቀጠል Transaction ID መላክዎን ያረጋግጡ!**\n"
-        f"• ከአንድ በላይ ቡድን ማስመዝገብ ከፈለጉ ለእያንዳንዱ ቡድን በተለየ ክፍያና የቡድን ስም/ስክሪንሾት መላክ አለብዎት።\n\n"
-        f"🖼 **Transaction ID የት እንደሚገኝ በምስሎቹ ላይ ማየት ይችላሉ☝️**"
+        f"🚨 **መረጃዎችን በሚከተለው ቅደም-ተከተል ብቻ ይላኩ፦**\n\n"
+        f"1️⃣ **መጀመሪያ፦** የ FPL የቡድን ስምዎን (Team Name) በጽሁፍ ይላኩ።\n"
+        f"2️⃣ **በመቀጠል፦** ከ Telebirr የደረሶትን **Transaction ID** በጽሁፍ ይላኩ።\n"
+        f"3️⃣ **በመጨረሻም፦** የ FPL የቡድን ስምዎን **ስክሪንሾት (Screenshot)** ይላኩ።\n\n"
+        f"⏱ **ማሳሰቢያ፦** የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ሊንክ በግል ይላክሎታል።"
     )
 
     if os.path.exists(PHOTO_PATH_1) and os.path.exists(PHOTO_PATH_2):
@@ -319,18 +332,23 @@ async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     standings_text = get_league_standings()
     await update.message.reply_text(standings_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
+# ፎቶ ሲላክ የሚስተናገድበት
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.chat_id
+    photo_file_id = update.message.photo[-1].file_id
+    user_screenshots[user_id] = photo_file_id
+    
     await update.message.reply_text(
-        "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ደርሶናል!**\n\n"
-        "አሁን ደግሞ በመቀጠል የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
+        "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ተመዝግቧል!**\n\n"
+        "ክፍያ ፈጽመው ከሆነ እባክዎን የ Telebirr **Transaction ID (Tx ID)** በጽሁፍ ይላኩ።",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
 
+# ጽሁፎች ሲላኩ የሚስተናገድበት
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.chat_id
-    user = update.message.from_user
     
     if text in ["💳 ለመክፈል", "⚽ የመግቢያ ኮድ ለመቀበል"]:
         await pay_instruction(update, context)
@@ -341,9 +359,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "ℹ️ መመሪያ":
         await update.message.reply_text(
             f"ℹ️ **መመሪያ**\n\n"
-            f"1️⃣ ክፍያ በ Telebirr `{TELEBIRR_NO}` ይፈጽሙ።\n"
-            f"2️⃣ በመጀመሪያ የ FPL የቡድን ስምዎን (Team Name) ይላኩ።\n"
-            f"3️⃣ በመቀጠል የ Telebirr Transaction ID በጽሁፍ ይላኩ።\n\n"
+            f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው Transaction ID እና የ FPL የቡድን ስም መላክ አለብዎት።\n"
             f"• ጥያቄ ካለዎት አድሚኖችን ለማናገር፦ {ADMIN_USERNAMES}",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
@@ -356,8 +372,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         invite_text = (
             f"👥 **ጓደኛዎን ይጋብዙ!**\n\n"
-            f"እነዚህን ደረጃዎች በመከተል ነፃ እድል ያግኙ፦\n"
-            f"1️⃣ ከታች ያለውን **የመጋበዣ ሊንክ Copy አድርገው** ለጓደኛዎ ይላኩ።\n"
+            f"1️⃣ የመጋበዣ ሊንክ Copy አድርገው ለጓደኛዎ ይላኩ።\n"
             f"2️⃣ ጓደኛዎ በሊንክዎ ገብቶ ሲመዘገብ የነፃ እድል ቁጥርዎ ይጨምራል!\n\n"
             f"🔗 **የእርስዎ መጋበዣ ሊንክ፦**\n`{referral_link}`\n\n"
             f"📊 **በእርስዎ ሊንክ የተመዘገቡ፦** {count}/10"
@@ -374,43 +389,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ የዚህ Gameweek የመመዝገቢያ ሰዓት አልፏል።", reply_markup=main_keyboard())
         return
 
-    # 1. Transaction ID መሆኑን ማረጋገጥ
-    tx_match = re.search(r'([A-Z0-9]{10,})', text, re.IGNORECASE)
-    if tx_match:
+    # Transaction ID ከተላከ
+    tx_match = re.search(r'([A-Za-z0-9]{8,})', text)
+    if tx_match and not text.startswith('/'):
         tx_id = tx_match.group(1).upper()
-        
-        pending_payments[tx_id] = {
-            "user_id": user_id,
-            "user_name": user.full_name,
-            "username": user.username
-        }
 
-        admin_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
-        ])
-
-        await update.message.reply_text(
-            f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
-            f"⏳ **ክፍያዎ በመረጋገጥ ላይ ነው...**\n"
-            f"የ Telebirr መልእክት እንደደረሰን የሊጉ መግቢያ ኮድ እና ሊንክ በራስ-ሰር ይላክልዎታል።\n\n"
-            f"📌 የ FPL የቡድን ስምዎን (Team Name) ካልላኩ እባክዎን አሁኑኑ በጽሁፍ ወይም በስክሪንሾት ይላኩ።\n\n"
-            f"⚠️ **ማሳሰቢያ፦** ክፍያ ፈጽመው የሊጉ ሊንክ ካልደረስዎት ወይም መዘግየት ካጋጠመዎት ከታች ያለውን ቁልፍ ተጭነው አድሚኑን ማናገር ይችላሉ።",
-            reply_markup=admin_keyboard,
-            parse_mode="Markdown"
-        )
-
+        # 🔥 ሀ) Telebirr SMS አስቀድሞ ቀድሞ ደርሶ ከሆነ፦
+        if tx_id in received_telebirr_smes:
+            print(f"✅ IMMEDIATE MATCH! Tx ID: {tx_id} was already received via SMS.")
+            process_successful_payment(user_id, tx_id)
+        # 🔥 ለ) SMS ገና ካልደረሰ ወደ pending አስገባው፦
+        else:
+            pending_payments[tx_id] = user_id
+            await update.message.reply_text(
+                f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
+                f"⚡️ የ Telebirr SMS ማረጋገጫ ከስርአቱ ጋር እያገናኘን ነው። የክፍያ ማረጋገጫው እንደተጠናቀቀ የመግቢያ ሊንኩ ወዲያውኑ ይላክልዎታል...",
+                reply_markup=main_keyboard(),
+                parse_mode="Markdown"
+            )
     else:
-        # 2. የተላከው ጽሁፍ Transaction ID ካልሆነ (የ FPL Team Name ከሆነ)
-        fail_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
-        ])
-
+        # የ FPL የቡድን ስም በጽሁፍ ከተላከ
         user_fpl_names[user_id] = text
         await update.message.reply_text(
-            f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ በጊዜያዊነት ተይዟል!**\n\n"
-            f"👉 **አሁን ደግሞ በመቀጠል፦** ክፍያ የፈጸሙበትን **የ Telebirr Transaction ID** በጽሁፍ ይላኩ።\n\n"
-            f"❓ **ጥያቄ ካለዎት፣ የመግቢያ ሊንክ እምቢ ካለዎት ወይም ችግር ካጋጠመዎት** ከታች ያለውን ቁልፍ ተጭነው አድሚንን ማናገር ይችላሉ።",
-            reply_markup=fail_keyboard,
+            f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
+            f"አሁን ደግሞ ክፍያ ፈጽመው የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
+            reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
 
@@ -431,10 +434,8 @@ def run_telegram_bot():
     bot_loop.run_forever()
 
 if __name__ == '__main__':
-    # Start Telegram Bot in Thread
     t = threading.Thread(target=run_telegram_bot, daemon=True)
     t.start()
     
-    # Start Flask Web Server
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
