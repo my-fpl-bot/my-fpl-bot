@@ -29,7 +29,7 @@ ENTRY_FEE = "50"
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
 DAYS_AMHARIC = {
     "Monday": "ሰኞ", "Tuesday": "ማክሰኞ", "Wednesday": "ረቡዕ",
-    "Thursday": "ሐሙስ", "Friday": "አርብ", "Saturday": "ቅዳሜ", "Sunday": "ሁድ"
+    "Thursday": "ሐሙስ", "Friday": "አርብ", "Saturday": "ቅዳሜ", "Sunday": "እሁድ"
 }
 
 # የፈረንጆች ወራት በኢትዮጵያ ስም
@@ -40,7 +40,7 @@ MONTHS_AMHARIC = {
 }
 
 # ዳታዎችን ጊዜያዊ ማከማቻ
-pending_payments = {}  # {tx_id: user_id}
+pending_payments = {}  # {tx_id: {"user_id": user_id, "user_name": name, "username": username}}
 user_fpl_names = {}    # {user_id: fpl_team_name}
 user_referrals = {}    # {user_id: [referred_user_ids]}
 user_invited_by = {}   # {user_id: referrer_user_id}
@@ -123,10 +123,9 @@ def get_current_gameweek_info():
         print(f"FPL API Error: {e}")
         return {"gw_name": "Gameweek", "deadline_str": "N/A", "is_open": True}
 
-# --- FPL Standings / Rank ማግኛ (ለ H2H/Draw League) ---
+# --- FPL Standings / Rank ማግኛ ---
 def get_league_standings():
     try:
-        # መጀመሪያ H2H ሊግን ይሞክራል
         h2h_url = f"https://fantasy.premierleague.com/api/leagues-h2h/{FPL_LEAGUE_ID}/standings/"
         res = requests.get(h2h_url, timeout=10)
         
@@ -136,7 +135,6 @@ def get_league_standings():
             league_name = data.get('league', {}).get('name', 'ETHIO FANTASY')
             is_h2h = True
         else:
-            # H2H ካልሆነ Classic ሊግ ይሞክራል
             classic_url = f"https://fantasy.premierleague.com/api/leagues-classic/{FPL_LEAGUE_ID}/standings/"
             res = requests.get(classic_url, timeout=10)
             data = res.json()
@@ -189,7 +187,7 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=600):
 def home():
     return "FPL Bot is running successfully!", 200
 
-# --- Telebirr SMS Webhook ---
+# --- Telebirr SMS Webhook (ክፍያው ሲረጋገጥ ብቻ መልእክት የሚልክ) ---
 @app.route('/sms_webhook', methods=['POST'])
 def sms_webhook():
     try:
@@ -206,9 +204,13 @@ def sms_webhook():
             print(f"Extracted Tx ID: {tx_id}")
 
             if tx_id in pending_payments:
-                user_id = pending_payments.pop(tx_id)
-                
-                # 1. የመግቢያ ኮድ እና ሊንክ መላክ (10 ደቂቃ ማስታወቂያ ጨምሮ)
+                user_info = pending_payments.pop(tx_id)
+                user_id = user_info["user_id"]
+                full_name = user_info["user_name"]
+                username = user_info["username"]
+                fpl_team = user_fpl_names.get(user_id, "አልተጠቀሰም")
+
+                # 1. ለተጠቃሚው የመግቢያ ኮድ እና ሊንክ መላክ
                 sent_msg = asyncio.run_coroutine_threadsafe(
                     bot_app.bot.send_message(
                         chat_id=user_id,
@@ -227,9 +229,26 @@ def sms_webhook():
                     bot_loop
                 ).result()
 
-                # 2. ከ 10 ደቂቃ (600 ሰከንድ) በኋላ መልእክቱን ማጥፋት
+                # 2. ከ 10 ደቂቃ በኋላ መልእክቱን ማጥፋት
                 asyncio.run_coroutine_threadsafe(
                     delete_message_after_delay(user_id, sent_msg.message_id, 600),
+                    bot_loop
+                )
+
+                # 3. ክፍያው ሙሉ በሙሉ ተጠናቆ ሊንኩ ከተላከ በኋላ ብቻ ወደ አድሚን ግሩፕ መላክ
+                asyncio.run_coroutine_threadsafe(
+                    bot_app.bot.send_message(
+                        chat_id=GROUP_CHAT_ID,
+                        text=(
+                            f"🎉 **አዲስ የተሳካ ምዝገባ እና ክፍያ!**\n\n"
+                            f"👤 **ተወዳዳሪ፦** {full_name} (@{username if username else 'የለውም'})\n"
+                            f"🆔 **User ID፦** `{user_id}`\n"
+                            f"⚽ **FPL Team Name፦** `{fpl_team}`\n"
+                            f"🔢 **Tx ID፦** `{tx_id}`\n"
+                            f"✅ **ሁኔታ፦** ክፍያው ተረጋግጦ የሊጉ መግቢያ ሊንክ ተልኮለታል።"
+                        ),
+                        parse_mode="Markdown"
+                    ),
                     bot_loop
                 )
 
@@ -287,11 +306,7 @@ async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     standings_text = get_league_standings()
     await update.message.reply_text(standings_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
-# ፎቶ ሲላክ የሚስተናገድበት (ወደ ግሩፕ ይላካል)
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    photo_file_id = update.message.photo[-1].file_id
-    
     await update.message.reply_text(
         "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ደርሶናል!**\n\n"
         "አሁን ደግሞ እባክዎን የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
@@ -299,23 +314,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-    caption_text = (
-        f"📥 **አዲስ የ FPL Team Screenshot ደርሷል!**\n\n"
-        f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
-        f"🆔 **User ID፦** `{user.id}`"
-    )
-    
-    try:
-        await context.bot.send_photo(
-            chat_id=GROUP_CHAT_ID,
-            photo=photo_file_id,
-            caption=caption_text,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        print(f"Error sending photo to group: {e}")
-
-# ጽሁፎች ሲላኩ የሚስተናገድበት
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.chat_id
@@ -361,11 +359,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ የዚህ Gameweek የመመዝገቢያ ሰዓት አልፏል።", reply_markup=main_keyboard())
         return
 
-    # 1. Transaction ID መሆኑን በ Regex ማረጋገጥ (ቢያንስ 10 አልፋኑመሪክ Characters)
+    # 1. Transaction ID መሆኑን ማረጋገጥ
     tx_match = re.search(r'([A-Z0-9]{10,})', text, re.IGNORECASE)
     if tx_match:
         tx_id = tx_match.group(1).upper()
-        pending_payments[tx_id] = user_id
+        
+        # የላኪውን መረጃ በጊዜያዊነት መያዝ
+        pending_payments[tx_id] = {
+            "user_id": user_id,
+            "user_name": user.full_name,
+            "username": user.username
+        }
 
         await update.message.reply_text(
             f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
@@ -374,24 +378,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        
-        # Transaction ID ብቻ ወደ ግሩፕ መላክ
-        try:
-            await context.bot.send_message(
-                chat_id=GROUP_CHAT_ID,
-                text=(
-                    f"💳 **አዲስ Transaction ID ደርሷል!**\n\n"
-                    f"🔢 **Tx ID፦** `{tx_id}`\n"
-                    f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
-                    f"🆔 **User ID፦** `{user.id}`"
-                ),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Error sending Tx ID to group: {e}")
+        # እዚህ ጋር ወደ ግሩፑ ምንም አይላክም!
 
     else:
-        # 2. የተላከው ጽሁፍ Transaction ID ካልሆነ የ FPL Team Name እንደሆነ ተደርጎ ለቦቱ ዳታቤዝ/ጊዜያዊ ማከማቻ ብቻ ይመዘገባል
+        # 2. የ FPL Team Name በጽሁፍ ሲላክ
         user_fpl_names[user_id] = text
         await update.message.reply_text(
             f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
@@ -399,7 +389,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        # አሁን የቡድን ስም በጽሁፍ ሲላክ ወደ ግሩፑ አይላክም፤ ተጠቃሚው ክፍያ ሲፈጽም ብቻ በ Tx ID ይረጋገጣል።
+        # እዚህ ጋር ወደ ግሩፑ ምንም አይላክም!
 
 # --- Application setup & Background Runner ---
 bot_app = Application.builder().token(TOKEN).build()
