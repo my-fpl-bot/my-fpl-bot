@@ -5,7 +5,7 @@ import threading
 import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
-from telegram import Update, ReplyKeyboardMarkup, InputMediaPhoto
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =========================================================
@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TOKEN = os.getenv("BOT_TOKEN", "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0")
 TELEBIRR_NO = "0925358925"
 ADMIN_USERNAMES = "@mst10m ወይም @ATCITYZEN"
+ADMIN_PRIMARY_URL = "https://t.me/mst10m"  # በአዝራሩ (Button) የሚከፈተው የአድሚን አካውንት
 CHANNEL_LINK = "https://t.me/ETHIO_FANTASY_1"
 GROUP_CHAT_ID = -1002391954418  # ክፍያ ሲረጋገጥ ብቻ መረጃ የሚላክበት ግሩፕ ID
 
@@ -40,8 +41,8 @@ MONTHS_AMHARIC = {
 }
 
 # ዳታዎችን ማከማቻ
-pending_payments = {}         # {tx_id: user_id} -> ተጠቃሚው አስቀድሞ Tx ID ሲልክ
-received_telebirr_smes = set() # {tx_id1, tx_id2, ...} -> SMS ቀድሞ ሲደርስ የተመዘገቡ Tx IDዎች
+pending_payments = {}         # {tx_id: user_id}
+received_telebirr_smes = set() # {tx_id1, tx_id2, ...}
 user_fpl_names = {}           # {user_id: fpl_team_name}
 user_screenshots = {}         # {user_id: photo_file_id}
 user_referrals = {}           # {user_id: [referred_user_ids]}
@@ -198,7 +199,7 @@ def process_successful_payment(user_id, tx_id):
                 f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n\n"
                 f"🔑 **የመግቢያ ኮድ (Code)፦**\n`{FPL_CODE}`\n"
                 f"*(ከላይ ያለውን ኮድ በመንካት በቀላሉ Copy ማድረግ ይችላሉ)*\n\n"
-                f"🔗 **ቀጥታ ለመቀላቀል ከታች ያለውን ሊንክ ይጫኑ፦**\n"
+                f"🔗 **በሊንክ ቀጥታ ለመቀላቀል፦**\n"
                 f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}\n\n"
                 f"⏱ **ማሳሰቢያ፦** ይህ መልእክትና ሊንክ ለደህንነት ሲባል **ከ 10 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
             ),
@@ -270,10 +271,8 @@ def sms_webhook():
         
         for tx in found_ids:
             tx_upper = tx.upper()
-            # 1. SMS የመጣውን Tx ID በጊዜያዊ ማከማቻ ውስጥ መመዝገብ
             received_telebirr_smes.add(tx_upper)
 
-            # 2. ተጠቃሚው ቀድሞ ይሄንን Tx ID ልኮ እንደሆነ ማረጋገጥ
             if tx_upper in pending_payments:
                 matched_user_id = pending_payments.pop(tx_upper)
                 print(f"✅ MATCH FOUND VIA SMS! Tx ID: {tx_upper} for User: {matched_user_id}")
@@ -308,11 +307,8 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
         f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
-        f"🚨 **መረጃዎችን በሚከተለው ቅደም-ተከተል ብቻ ይላኩ፦**\n\n"
-        f"1️⃣ **መጀመሪያ፦** የ FPL የቡድን ስምዎን (Team Name) በጽሁፍ ይላኩ።\n"
-        f"2️⃣ **በመቀጠል፦** ከ Telebirr የደረሶትን **Transaction ID** በጽሁፍ ይላኩ።\n"
-        f"3️⃣ **በመጨረሻም፦** የ FPL የቡድን ስምዎን **ስክሪንሾት (Screenshot)** ይላኩ።\n\n"
-        f"⏱ **ማሳሰቢያ፦** የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ሊንክ በግል ይላክሎታል።"
+        f"2️⃣ ክፍያ ከፈጸሙ በኋላ የሚደርስዎትን **Transaction ID (Tx ID)** እና **የ FPL የቡድን ስምዎን** ለቦቱ ይላኩ።\n\n"
+        f"📌 **ማሳሰቢያ፦** ክፍያዎ ሲረጋገጥ የሊጉ መግቢያ ኮድ በራስ-ሰር ይላክሎታል።"
     )
 
     if os.path.exists(PHOTO_PATH_1) and os.path.exists(PHOTO_PATH_2):
@@ -340,7 +336,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ተመዝግቧል!**\n\n"
-        "ክፍያ ፈጽመው ከሆነ እባክዎን የ Telebirr **Transaction ID (Tx ID)** በጽሁፍ ይላኩ።",
+        "አሁን ደግሞ የ Telebirr **Transaction ID (Tx ID)** በጽሁፍ ይላኩ። ክፍያዎ ሲረጋገጥ የመግቢያ ኮዱ ይላክልዎታል።",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
@@ -372,8 +368,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         invite_text = (
             f"👥 **ጓደኛዎን ይጋብዙ!**\n\n"
-            f"1️⃣ የመጋበዣ ሊንክ Copy አድርገው ለጓደኛዎ ይላኩ።\n"
-            f"2️⃣ ጓደኛዎ በሊንክዎ ገብቶ ሲመዘገብ የነፃ እድል ቁጥርዎ ይጨምራል!\n\n"
             f"🔗 **የእርስዎ መጋበዣ ሊንክ፦**\n`{referral_link}`\n\n"
             f"📊 **በእርስዎ ሊንክ የተመዘገቡ፦** {count}/10"
         )
@@ -394,25 +388,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if tx_match and not text.startswith('/'):
         tx_id = tx_match.group(1).upper()
 
-        # 🔥 ሀ) Telebirr SMS አስቀድሞ ቀድሞ ደርሶ ከሆነ፦
+        # ሀ) Telebirr SMS አስቀድሞ ቀድሞ ደርሶ ከሆነ፦
         if tx_id in received_telebirr_smes:
             print(f"✅ IMMEDIATE MATCH! Tx ID: {tx_id} was already received via SMS.")
             process_successful_payment(user_id, tx_id)
-        # 🔥 ለ) SMS ገና ካልደረሰ ወደ pending አስገባው፦
+        # ለ) SMS ገና ካልደረሰ ወደ pending አስገባው፦
         else:
             pending_payments[tx_id] = user_id
+            
+            # 🔘 የቀጥታ አድሚን አዝራር (Inline Button)
+            admin_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 አድሚንን ለማናገር (Contact Admin)", url=ADMIN_PRIMARY_URL)]
+            ])
+
             await update.message.reply_text(
-                f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
-                f"⚡️ የ Telebirr SMS ማረጋገጫ ከስርአቱ ጋር እያገናኘን ነው። የክፍያ ማረጋገጫው እንደተጠናቀቀ የመግቢያ ሊንኩ ወዲያውኑ ይላክልዎታል...",
-                reply_markup=main_keyboard(),
+                f"📥 **Transaction ID ደርሶናል!**\n\n"
+                f"የ Telebirr ክፍያ ማረጋገጫ SMS እንደደረሰን የሊጉ መግቢያ ኮድ እና ሊንክ ይላክሎታል።\n\n"
+                f"🚨 **ማሳሰቢያ፦** ክፍያ ካልፈጸሙ ኮዱ አይላክም። ክፍያ ፈጽመው SMS ከዘገየ ወይም ካልተሳካ ከታች ያለውን አዝራር ተጭነው አድሚንን መጠየቅ ይችላሉ።",
+                reply_markup=admin_keyboard,
                 parse_mode="Markdown"
             )
     else:
         # የ FPL የቡድን ስም በጽሁፍ ከተላከ
         user_fpl_names[user_id] = text
         await update.message.reply_text(
-            f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
-            f"አሁን ደግሞ ክፍያ ፈጽመው የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
+            f"✅ **የ FPL የቡድን ስምዎ ተመዝግቧል!**\n\n"
+            f"አሁን ክፍያ ፈጽመው የ Telebirr **Transaction ID (Tx ID)** ይላኩ።\n"
+            f"*(የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ኮድ በራስ-ሰር ይላክሎታል።)*",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
