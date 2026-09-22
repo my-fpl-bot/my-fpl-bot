@@ -22,7 +22,7 @@ PHOTO_PATH_1 = "photo_2026-09-06_22-09-38.jpg"
 PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 
 # የ FPL ሊግ መረጃዎች
-FPL_LEAGUE_ID = "2309527"
+FPL_LEAGUE_ID = "2276766"
 FPL_CODE = os.getenv("FPL_CODE", "v8v7fu")
 ENTRY_FEE = "50"
 
