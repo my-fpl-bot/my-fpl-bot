@@ -5,7 +5,7 @@ import threading
 import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
-from telegram import Update, ReplyKeyboardMarkup, InputMediaPhoto
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =========================================================
@@ -13,6 +13,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # =========================================================
 TOKEN = os.getenv("BOT_TOKEN", "8653645989:AAE2qWZvj0SO8dIG07edcIW9fO3E-1lioT0")
 TELEBIRR_NO = "0925358925"
+ADMIN_USERNAME = "mst10m"  # ያለ @ ምልክት አድሚን ዩዘርኔም
 ADMIN_USERNAMES = "@mst10m ወይም @ATCITYZEN"
 CHANNEL_LINK = "https://t.me/ETHIO_FANTASY_1"
 GROUP_CHAT_ID = -1002391954418  # የግሩፕ ID
@@ -187,7 +188,7 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=600):
 def home():
     return "FPL Bot is running successfully!", 200
 
-# --- Telebirr SMS Webhook (ክፍያው ሲረጋገጥ ብቻ መልእክት የሚልክ) ---
+# --- Telebirr SMS Webhook ---
 @app.route('/sms_webhook', methods=['POST'])
 def sms_webhook():
     try:
@@ -210,32 +211,43 @@ def sms_webhook():
                 username = user_info["username"]
                 fpl_team = user_fpl_names.get(user_id, "አልተጠቀሰም")
 
-                # 1. ለተጠቃሚው የመግቢያ ኮድ እና ሊንክ መላክ
+                # ✅ 3ኛ አጋጣሚ፦ የ ቻናል ቁልፍ + የአድሚን ማናገሪያ ቁልፍ በአንድ ላይ
+                success_keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎁 ቻናላችንን ይቀላቀሉ & ሽልማት ይውሰዱ", url=CHANNEL_LINK)],
+                    [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
+                ])
+
                 sent_msg = asyncio.run_coroutine_threadsafe(
                     bot_app.bot.send_message(
                         chat_id=user_id,
                         text=(
+                            f"🎉 **ምዝገባዎ በስኬት ተጠናቋል!**\n\n"
                             f"✅ **ክፍያህ በትክክል ተረጋግጧል!**\n\n"
                             f"🏆 **የተመዘገቡበት፡** {gw_info['gw_name']}\n\n"
                             f"🔑 **የመግቢያ ኮድ (Code)፦**\n`{FPL_CODE}`\n"
                             f"*(ከላይ ያለውን ኮድ በመንካት/በመጫን በቀላሉ Copy ማድረግ ይችላሉ)*\n\n"
                             f"🔗 **ወይም በሊንክ ቀጥታ ለመቀላቀል፦**\n"
                             f"https://fantasy.premierleague.com/leagues/auto-join/{FPL_CODE}\n\n"
-                            f"⏱ **ማሳሰቢያ፦** ይህ መልእክትና ኮድ ለደህንነት ሲባል **ከ 10 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
+                            f"📌 **ሊንኩን ከተቀላቀሉ በኋላ፦**\n"
+                            f"1️⃣ **ደረጃ ለማወቅ፦** በቦቱ ሜኑ ላይ **«📊 የሊግ ደረጃዎች (Rank)»** የሚለውን በመጫን አጠቃላይ ደረጃዎትን ማየት ይችላሉ።\n"
+                            f"2️⃣ **ሽልማት ለመቀበል፦** ከታች ያለውን ቁልፍ ተጭነው **የቴሌግራም ቻናላችንን ይቀላቀሉ!** የጨዋታ ሳምንት ሲጠናቀቅ አሸናፊዎች የሚገለጹበት እና ሽልማት የሚላክበት በቻናሉ ነው።\n\n"
+                            f"❓ **ማሳሰቢያ፦** የመግቢያ ሊንኩ/ኮዱ እምቢ ካለዎት፣ ካልሰራዎት ወይም ምንም ዓይነት ችግር ካጋጠመዎት ከታች ያለውን **«💬 አድሚንን ለማናገር»** የሚለውን ቁልፍ ተጭነው ማናገር ይችላሉ።\n\n"
+                            f"⏱ **ደህንነት፦** ይህ የመግቢያ ኮድ ያለበት መልእክት **ከ 10 ደቂቃ በኋላ በራስ-ሰር ይፊቃል!** እባክዎን አሁኑኑ ተጭነው ይቀላቀሉ።"
                         ),
+                        reply_markup=success_keyboard,
                         parse_mode="Markdown",
                         protect_content=True
                     ),
                     bot_loop
                 ).result()
 
-                # 2. ከ 10 ደቂቃ በኋላ መልእክቱን ማጥፋት
+                # ከ 10 ደቂቃ በኋላ ማጥፋት
                 asyncio.run_coroutine_threadsafe(
                     delete_message_after_delay(user_id, sent_msg.message_id, 600),
                     bot_loop
                 )
 
-                # 3. ክፍያው ሙሉ በሙሉ ተጠናቆ ሊንኩ ከተላከ በኋላ ብቻ ወደ አድሚን ግሩፕ መላክ
+                # ወደ አድሚን ግሩፕ መላክ
                 asyncio.run_coroutine_threadsafe(
                     bot_app.bot.send_message(
                         chat_id=GROUP_CHAT_ID,
@@ -364,32 +376,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if tx_match:
         tx_id = tx_match.group(1).upper()
         
-        # የላኪውን መረጃ በጊዜያዊነት መያዝ
         pending_payments[tx_id] = {
             "user_id": user_id,
             "user_name": user.full_name,
             "username": user.username
         }
 
+        # 1ኛ አጋጣሚ፦ Transaction ID ልከው SMS/ሊንክ ሳይላክላቸው (በመጠባበቅ ላይ እያሉ) የሚደርስ መልእክት
+        admin_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
+        ])
+
         await update.message.reply_text(
             f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
-            f"📌 የ FPL የቡድን ስምዎን በጽሁፍ ወይም በስክሪንሾት ካልላኩ እባክዎን አሁኑኑ ይላኩ።\n\n"
-            f"🚨 **ዋና ማሳሰቢያ፦** የ Telebirr SMS እንደደረሰን የሊጉ መግቢያ ሊንክና ኮድ ይላክሎታል። ኮዱ/ሊንኩ እንደደረሰዎት **በ 10 ደቂቃ ውስጥ** ተጭነው መቀላቀል አለብዎት! ከ 10 ደቂቃ በኋላ መልእክቱ ለደህንነት ሲባል በራስ-ሰር ይፊቃል።",
-            reply_markup=main_keyboard(),
+            f"⏳ **ክፍያዎ በመረጋገጥ ላይ ነው...**\n"
+            f"የ Telebirr መልእክት እንደደረሰን የሊጉ መግቢያ ኮድ እና ሊንክ በራስ-ሰር ይላክልዎታል።\n\n"
+            f"📌 የ FPL የቡድን ስምዎን ካልላኩ እባክዎን አሁኑኑ በጽሁፍ ወይም በስክሪንሾት ይላኩ።\n\n"
+            f"⚠️ **ማሳሰቢያ፦** ክፍያ ፈጽመው የሊጉ ሊንክ ካልደረስዎት ወይም መዘግየት ካጋጠመዎት ከታች ያለውን ቁልፍ ተጭነው አድሚኑን ማናገር ይችላሉ።",
+            reply_markup=admin_keyboard,
             parse_mode="Markdown"
         )
-        # እዚህ ጋር ወደ ግሩፑ ምንም አይላክም!
 
     else:
-        # 2. የ FPL Team Name በጽሁፍ ሲላክ
+        # 2ኛ አጋጣሚ፦ ምዝገባ ሳይጠናቀቅ ሲቀር (የ Team Name ብቻ ልከው Transaction ID ሳይልኩ ሲቀሩ)
+        fail_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
+        ])
+
         user_fpl_names[user_id] = text
         await update.message.reply_text(
-            f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
-            f"አሁን ደግሞ ክፍያ ፈጽመው የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
-            reply_markup=main_keyboard(),
+            f"⚠️ **ምዝገባዎ አልተጠናቀቀም!**\n\n"
+            f"✅ የ FPL የቡድን ስምዎት `{text}` ተብሎ በጊዜያዊነት ተይዟል።\n\n"
+            f"👉 ምዝገባዎ እንዲጠናቀቅና የመግቢያ ሊንክ እንዲላክልዎት **የ Telebirr Transaction ID** በጽሁፍ መላክ አለብዎት።\n\n"
+            f"❓ **ጥያቄ ካለዎት፣ የመግቢያ ሊንክ እምቢ ካለዎት ወይም ችግር ካጋጠመዎት** ከታች ያለውን ቁልፍ ተጭነው አድሚንን ማናገር ይችላሉ።",
+            reply_markup=fail_keyboard,
             parse_mode="Markdown"
         )
-        # እዚህ ጋር ወደ ግሩፑ ምንም አይላክም!
 
 # --- Application setup & Background Runner ---
 bot_app = Application.builder().token(TOKEN).build()
