@@ -211,7 +211,7 @@ def sms_webhook():
                 username = user_info["username"]
                 fpl_team = user_fpl_names.get(user_id, "አልተጠቀሰም")
 
-                # ✅ 3ኛ አጋጣሚ፦ የ ቻናል ቁልፍ + የአድሚን ማናገሪያ ቁልፍ በአንድ ላይ
+                # የ ቻናል ቁልፍ + የአድሚን ማናገሪያ ቁልፍ
                 success_keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("🎁 ቻናላችንን ይቀላቀሉ & ሽልማት ይውሰዱ", url=CHANNEL_LINK)],
                     [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
@@ -291,14 +291,15 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     instruction_text = (
-        f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
-        f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
+        f"💳 **የክፍያና ምዝገባ ደረጃዎች (ተከተሉ)፦**\n\n"
+        f"1️⃣ **መጀመሪያ፦** በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
-        f"2️⃣ ክፍያ ከፈጸሙ በኋላ በምስሉ ላይ **በቀይ ሳጥን የተከበበውን የ Telebirr Transaction ID (Code)** Copy አድርገው በጽሁፍ ይላኩ።\n\n"
+        f"2️⃣ **ሁለተኛ፦** **የ FPL የቡድን ስምዎን (Team Name)** በጽሁፍ ይላኩልን ወይም በምስል (Screenshot) አያይዘው ይላኩ።\n\n"
+        f"3️⃣ **ሦስተኛ፦** ክፍያ እንደፈጸሙ ከ Telebirr የደረሰዎትን **Transaction ID (Code)** በጽሁፍ ይላኩ።\n\n"
         f"🚨 **ዋና ማሳሰቢያ፦**\n"
-        f"• እንዳይሳሳቱ **የ FPL የቡድን ስምዎን (Team Name)** በጽሁፍ ወይም **ስክሪንሾት (Screenshot)** አያይዘው መላክ አለብዎት!\n"
-        f"• ከአንድ በላይ ቡድን (በተለየ Email) ማስመዝገብ ከፈለጉ ለእያንዳንዱ ቡድን የተለየ ክፍያና የቡድን ስም/ስክሪንሾት መላክ አለብዎት።\n\n"
-        f"🖼 **እንዴት እንደሚላክ በምስሎቹ ላይ ማየት ይችላሉ☝️**"
+        f"• **በመጀመሪያ የ FPL ቡድን ስምዎን በመቀጠል Transaction ID መላክዎን ያረጋግጡ!**\n"
+        f"• ከአንድ በላይ ቡድን ማስመዝገብ ከፈለጉ ለእያንዳንዱ ቡድን በተለየ ክፍያና የቡድን ስም/ስክሪንሾት መላክ አለብዎት።\n\n"
+        f"🖼 **Transaction ID የት እንደሚገኝ በምስሎቹ ላይ ማየት ይችላሉ☝️**"
     )
 
     if os.path.exists(PHOTO_PATH_1) and os.path.exists(PHOTO_PATH_2):
@@ -321,7 +322,7 @@ async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📸 **የ FPL የቡድን ስምዎ ስክሪንሾት ደርሶናል!**\n\n"
-        "አሁን ደግሞ እባክዎን የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
+        "አሁን ደግሞ በመቀጠል የ Telebirr **Transaction ID** በጽሁፍ ይላኩ።",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
@@ -340,7 +341,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "ℹ️ መመሪያ":
         await update.message.reply_text(
             f"ℹ️ **መመሪያ**\n\n"
-            f"• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው Transaction ID እና የ FPL የቡድን ስም (በጽሁፍ ወይም በስክሪንሾት) መላክ አለብዎት።\n"
+            f"1️⃣ ክፍያ በ Telebirr `{TELEBIRR_NO}` ይፈጽሙ።\n"
+            f"2️⃣ በመጀመሪያ የ FPL የቡድን ስምዎን (Team Name) ይላኩ።\n"
+            f"3️⃣ በመቀጠል የ Telebirr Transaction ID በጽሁፍ ይላኩ።\n\n"
             f"• ጥያቄ ካለዎት አድሚኖችን ለማናገር፦ {ADMIN_USERNAMES}",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
@@ -382,7 +385,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "username": user.username
         }
 
-        # 1ኛ አጋጣሚ፦ Transaction ID ልከው SMS/ሊንክ ሳይላክላቸው (በመጠባበቅ ላይ እያሉ) የሚደርስ መልእክት
         admin_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
         ])
@@ -391,23 +393,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📥 **Transaction ID `{tx_id}` ተመዝግቧል!**\n\n"
             f"⏳ **ክፍያዎ በመረጋገጥ ላይ ነው...**\n"
             f"የ Telebirr መልእክት እንደደረሰን የሊጉ መግቢያ ኮድ እና ሊንክ በራስ-ሰር ይላክልዎታል።\n\n"
-            f"📌 የ FPL የቡድን ስምዎን ካልላኩ እባክዎን አሁኑኑ በጽሁፍ ወይም በስክሪንሾት ይላኩ።\n\n"
+            f"📌 የ FPL የቡድን ስምዎን (Team Name) ካልላኩ እባክዎን አሁኑኑ በጽሁፍ ወይም በስክሪንሾት ይላኩ።\n\n"
             f"⚠️ **ማሳሰቢያ፦** ክፍያ ፈጽመው የሊጉ ሊንክ ካልደረስዎት ወይም መዘግየት ካጋጠመዎት ከታች ያለውን ቁልፍ ተጭነው አድሚኑን ማናገር ይችላሉ።",
             reply_markup=admin_keyboard,
             parse_mode="Markdown"
         )
 
     else:
-        # 2ኛ አጋጣሚ፦ ምዝገባ ሳይጠናቀቅ ሲቀር (የ Team Name ብቻ ልከው Transaction ID ሳይልኩ ሲቀሩ)
+        # 2. የተላከው ጽሁፍ Transaction ID ካልሆነ (የ FPL Team Name ከሆነ)
         fail_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("💬 አድሚንን ለማናገር ይጫኑ", url=f"https://t.me/{ADMIN_USERNAME}")]
         ])
 
         user_fpl_names[user_id] = text
         await update.message.reply_text(
-            f"⚠️ **ምዝገባዎ አልተጠናቀቀም!**\n\n"
-            f"✅ የ FPL የቡድን ስምዎት `{text}` ተብሎ በጊዜያዊነት ተይዟል።\n\n"
-            f"👉 ምዝገባዎ እንዲጠናቀቅና የመግቢያ ሊንክ እንዲላክልዎት **የ Telebirr Transaction ID** በጽሁፍ መላክ አለብዎት።\n\n"
+            f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ በጊዜያዊነት ተይዟል!**\n\n"
+            f"👉 **አሁን ደግሞ በመቀጠል፦** ክፍያ የፈጸሙበትን **የ Telebirr Transaction ID** በጽሁፍ ይላኩ።\n\n"
             f"❓ **ጥያቄ ካለዎት፣ የመግቢያ ሊንክ እምቢ ካለዎት ወይም ችግር ካጋጠመዎት** ከታች ያለውን ቁልፍ ተጭነው አድሚንን ማናገር ይችላሉ።",
             reply_markup=fail_keyboard,
             parse_mode="Markdown"
