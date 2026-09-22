@@ -29,7 +29,7 @@ ENTRY_FEE = "50"
 # የሳምንታት ስም በኢትዮጵያ አቆጣጠር
 DAYS_AMHARIC = {
     "Monday": "ሰኞ", "Tuesday": "ማክሰኞ", "Wednesday": "ረቡዕ",
-    "Thursday": "ሐሙስ", "Friday": "አርብ", "Saturday": "ቅዳሜ", "Sunday": "እሁድ"
+    "Thursday": "ሐሙስ", "Friday": "አርብ", "Saturday": "ቅዳሜ", "Sunday": "ሁድ"
 }
 
 # የፈረንጆች ወራት በኢትዮጵያ ስም
@@ -361,8 +361,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ የዚህ Gameweek የመመዝገቢያ ሰዓት አልፏል።", reply_markup=main_keyboard())
         return
 
-    # Transaction ID ከተላከ
-    tx_match = re.search(r'([A-Z0-9]{10,})', text)
+    # 1. Transaction ID መሆኑን በ Regex ማረጋገጥ (ቢያንስ 10 አልፋኑመሪክ Characters)
+    tx_match = re.search(r'([A-Z0-9]{10,})', text, re.IGNORECASE)
     if tx_match:
         tx_id = tx_match.group(1).upper()
         pending_payments[tx_id] = user_id
@@ -374,7 +374,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        # Transaction ID ወደ ግሩፕ መላክ
+        
+        # Transaction ID ብቻ ወደ ግሩፕ መላክ
         try:
             await context.bot.send_message(
                 chat_id=GROUP_CHAT_ID,
@@ -390,7 +391,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"Error sending Tx ID to group: {e}")
 
     else:
-        # የ FPL የቡድን ስም በጽሁፍ ከተላከ
+        # 2. የተላከው ጽሁፍ Transaction ID ካልሆነ የ FPL Team Name እንደሆነ ተደርጎ ለቦቱ ዳታቤዝ/ጊዜያዊ ማከማቻ ብቻ ይመዘገባል
         user_fpl_names[user_id] = text
         await update.message.reply_text(
             f"✅ **የ FPL የቡድን ስምዎት `{text}` ተብሎ ተመዝግቧል!**\n\n"
@@ -398,20 +399,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        # ወደ ግሩፑ መረጃውን መላክ
-        try:
-            await context.bot.send_message(
-                chat_id=GROUP_CHAT_ID,
-                text=(
-                    f"📝 **አዲስ የ FPL Team Name (በጽሁፍ) ደርሷል!**\n\n"
-                    f"⚽ **የቡድን ስም፦** `{text}`\n"
-                    f"👤 **ላኪ፦** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
-                    f"🆔 **User ID፦** `{user.id}`"
-                ),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Error sending text to group: {e}")
+        # አሁን የቡድን ስም በጽሁፍ ሲላክ ወደ ግሩፑ አይላክም፤ ተጠቃሚው ክፍያ ሲፈጽም ብቻ በ Tx ID ይረጋገጣል።
 
 # --- Application setup & Background Runner ---
 bot_app = Application.builder().token(TOKEN).build()
