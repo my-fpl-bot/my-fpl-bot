@@ -41,11 +41,11 @@ MONTHS_AMHARIC = {
 }
 
 # ዳታዎችን ማከማቻ
-pending_payments = {}         # {tx_id: user_id}
+pending_payments = {}          # {tx_id: user_id}
 received_telebirr_smes = set() # {tx_id1, tx_id2, ...}
-user_fpl_names = {}           # {user_id: fpl_team_name}
-user_screenshots = {}         # {user_id: photo_file_id}
-user_referrals = {}           # {user_id: [referred_user_ids]}
+user_fpl_names = {}            # {user_id: fpl_team_name}
+user_screenshots = {}          # {user_id: photo_file_id}
+user_referrals = {}            # {user_id: [referred_user_ids]}
 
 app = Flask(__name__)
 
@@ -307,7 +307,8 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
         f"1️⃣ በ Telebirr መተግበሪያ ወይም በ `*127#` ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
         f"📲 **Telebirr ቁጥር፦** `{TELEBIRR_NO}`\n\n"
-        f"2️⃣ ክፍያ ከፈጸሙ በኋላ የሚደርስዎትን **Transaction ID (Tx ID)** እና **የ FPL የቡድን ስምዎን** ለቦቱ ይላኩ።\n\n"
+        f"2️⃣ አስቀድመው **የ FPL የቡድን ስምዎን** በጽሁፍ ይላኩልን።\n"
+        f"3️⃣ ክፍያ ከፈጸሙ በኋላ የሚደርስዎትን **Transaction ID (Tx ID)** ይላኩ።\n\n"
         f"📌 **ማሳሰቢያ፦** ክፍያዎ ሲረጋገጥ የሊጉ መግቢያ ኮድ በራስ-ሰር ይላክሎታል።"
     )
 
@@ -341,7 +342,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# ጽሁፎች ሲላኩ የሚስተናገድበት
+# ጽሁፎች ሲላኩ የሚስተናገድበት (የተስተካከለው ክፍል)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.chat_id
@@ -383,41 +384,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ የዚህ Gameweek የመመዝገቢያ ሰዓት አልፏል።", reply_markup=main_keyboard())
         return
 
-    # Transaction ID ከተላከ
-    tx_match = re.search(r'([A-Za-z0-9]{8,})', text)
-    if tx_match and not text.startswith('/'):
-        tx_id = tx_match.group(1).upper()
+    # 1) ተጠቃሚው አስቀድሞ የቡድን ስም ካስገባ በኋላ የሚልከውን ጽሁፍ እንደ Transaction ID መውሰድ፡
+    # ወይም ጽሁፉ በጥብቅ የ Telebirr Tx ID ፎርማት ከተጻፈ (በ 'TX' ወይም 'PB' የሚጀምር አሊያም አሃዞች ብቻ ከሆነ)
+    is_strict_tx = bool(re.match(r'^(TX|PB|tx|pb)?[A-Za-z0-9]{8,14}$', text)) and not re.search(r'\s', text)
+    
+    if user_id in user_fpl_names or is_strict_tx:
+        tx_match = re.search(r'([A-Za-z0-9]{8,15})', text)
+        if tx_match and not text.startswith('/'):
+            tx_id = tx_match.group(1).upper()
 
-        # ሀ) Telebirr SMS አስቀድሞ ቀድሞ ደርሶ ከሆነ፦
-        if tx_id in received_telebirr_smes:
-            print(f"✅ IMMEDIATE MATCH! Tx ID: {tx_id} was already received via SMS.")
-            process_successful_payment(user_id, tx_id)
-        # ለ) SMS ገና ካልደረሰ ወደ pending አስገባው፦
-        else:
-            pending_payments[tx_id] = user_id
-            
-            # 🔘 የቀጥታ አድሚን አዝራር (Inline Button)
-            admin_keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 አድሚንን ለማናገር (Contact Admin)", url=ADMIN_PRIMARY_URL)]
-            ])
+            # ሀ) Telebirr SMS አስቀድሞ ቀድሞ ደርሶ ከሆነ፦
+            if tx_id in received_telebirr_smes:
+                print(f"✅ IMMEDIATE MATCH! Tx ID: {tx_id} was already received via SMS.")
+                process_successful_payment(user_id, tx_id)
+            # ለ) SMS ገና ካልደረሰ ወደ pending አስገባው፦
+            else:
+                pending_payments[tx_id] = user_id
+                
+                admin_keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💬 አድሚንን ለማናገር (Contact Admin)", url=ADMIN_PRIMARY_URL)]
+                ])
 
-            await update.message.reply_text(
-                f"📥 **Transaction ID ደርሶናል!**\n\n"
-                f"የ Telebirr ክፍያ ማረጋገጫ SMS እንደደረሰን የሊጉ መግቢያ ኮድ እና ሊንክ ይላክሎታል።\n\n"
-                f"🚨 **ማሳሰቢያ፦** ክፍያ ካልፈጸሙ ኮዱ አይላክም። ክፍያ ፈጽመው SMS ከዘገየ ወይም ካልተሳካ ከታች ያለውን አዝራር ተጭነው አድሚንን መጠየቅ ይችላሉ።",
-                reply_markup=admin_keyboard,
-                parse_mode="Markdown"
-            )
-    else:
-        # የ FPL የቡድን ስም በጽሁፍ ከተላከ
-        user_fpl_names[user_id] = text
-        await update.message.reply_text(
-            f"✅ **የ FPL የቡድን ስምዎ ተመዝግቧል!**\n\n"
-            f"አሁን ክፍያ ፈጽመው የ Telebirr **Transaction ID (Tx ID)** ይላኩ።\n"
-            f"*(የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ኮድ በራስ-ሰር ይላክሎታል።)*",
-            reply_markup=main_keyboard(),
-            parse_mode="Markdown"
-        )
+                await update.message.reply_text(
+                    f"📥 **Transaction ID ደርሶናል!**\n\n"
+                    f"የ Telebirr ክፍያ ማረጋገጫ SMS እንደደረሰን የሊጉ መግቢያ ኮድ እና ሊንክ ይላክሎታል።\n\n"
+                    f"🚨 **ማሳሰቢያ፦** ክፍያ ካልፈጸሙ ኮዱ አይላክም። ክፍያ ፈጽመው SMS ከዘገየ ወይም ካልተሳካ ከታች ያለውን አዝራር ተጭነው አድሚንን መጠየቅ ይችላሉ።",
+                    reply_markup=admin_keyboard,
+                    parse_mode="Markdown"
+                )
+            return
+
+    # 2) ተጠቃሚው ገና የቡድን ስም ካላስገባ የተላከውን ጽሁፍ እንደ FPL የቡድን ስም መመዝገብ፦
+    user_fpl_names[user_id] = text
+    await update.message.reply_text(
+        f"✅ **የ FPL የቡድን ስምዎ «{text}» ተብሎ ተመዝግቧል!**\n\n"
+        f"አሁን ክፍያ ፈጽመው የ Telebirr **Transaction ID (Tx ID)** በጽሁፍ ይላኩ።\n"
+        f"*(የ Telebirr SMS ማረጋገጫ እንደደረሰን የሊጉ መግቢያ ኮድ በራስ-ሰር ይላክሎታል።)*",
+        reply_markup=main_keyboard(),
+        parse_mode="Markdown"
+    )
 
 # --- Application setup & Background Runner ---
 bot_app = Application.builder().token(TOKEN).build()
