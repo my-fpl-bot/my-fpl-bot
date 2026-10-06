@@ -3,7 +3,6 @@ import re
 import requests
 import threading
 import asyncio
-import sqlite3
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
@@ -17,7 +16,7 @@ TELEBIRR_NO = "0925358925"
 ADMIN_USERNAMES = "@mst10m ወይም @ATCITYZEN"
 ADMIN_PRIMARY_URL = "https://t.me/mst10m"
 CHANNEL_LINK = "https://t.me/ETHIO_FANTASY_1"
-GROUP_CHAT_ID = -1002391954418
+GROUP_CHAT_ID = -1002391954418  # ግሩፕ ID
 
 PHOTO_PATH_1 = "photo_2026-09-06_22-09-38.jpg"
 PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
@@ -25,8 +24,6 @@ PHOTO_PATH_2 = "photo_2026-09-08_03-50-53.jpg"
 FPL_LEAGUE_ID = os.getenv("FPL_LEAGUE_ID", "2309527")
 FPL_CODE = os.getenv("FPL_CODE", "v8v7fu")
 ENTRY_FEE = "50"
-
-DB_NAME = "bot_data.db"
 
 DAYS_AMHARIC = {
     "Monday": "ሰኞ", "Tuesday": "ማክሰኞ", "Wednesday": "ረቡዕ",
@@ -39,116 +36,16 @@ MONTHS_AMHARIC = {
     "September": "መስከረም", "October": "ጥቅምት", "November": "ሕዳር", "December": "ታኅሣሥ"
 }
 
-# =========================================================
-# 🗄️ DATABASE SETUP (SQLite)
-# =========================================================
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    # 1. ከስልክ የደረሱ የTelebirr SMSዎች ማከማቻ (status: 'PENDING' ወይም 'USED')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS telebirr_sms (
-            tx_id TEXT PRIMARY KEY,
-            status TEXT DEFAULT 'PENDING',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # 2. የተጠቃሚዎች የFPL ቡድን ስም ማከማቻ
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_teams (
-            user_id INTEGER PRIMARY KEY,
-            team_name TEXT,
-            photo_id TEXT
-        )
-    ''')
+# ዳታዎችን ማከማቻ (Memory Stores)
+pending_payments = {}          # {tx_id: user_id}
+received_telebirr_smes = set() # {tx_id1, tx_id2, ...}
+user_fpl_names = {}            # {user_id: fpl_team_name}
+user_screenshots = {}          # {user_id: photo_file_id}
+user_referrals = {}            # {user_id: [referred_user_ids]}
 
-    # 3. TG ላይ Tx ID ልከው SMS የሚጠብቁ ተጠቃሚዎች
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pending_users (
-            tx_id TEXT PRIMARY KEY,
-            user_id INTEGER
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# DB Helper Functions
-def save_telebirr_sms(tx_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO telebirr_sms (tx_id, status) VALUES (?, 'PENDING')", (tx_id,))
-    conn.commit()
-    conn.close()
-
-def get_sms_status(tx_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT status FROM telebirr_sms WHERE tx_id = ?", (tx_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else None
-
-def mark_sms_used(tx_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE telebirr_sms SET status = 'USED' WHERE tx_id = ?", (tx_id,))
-    conn.commit()
-    conn.close()
-
-def save_user_team(user_id, team_name):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO user_teams (user_id, team_name, photo_id) VALUES (?, ?, (SELECT photo_id FROM user_teams WHERE user_id = ?))", (user_id, team_name, user_id))
-    conn.commit()
-    conn.close()
-
-def save_user_photo(user_id, photo_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO user_teams (user_id, team_name, photo_id) VALUES (?, (SELECT team_name FROM user_teams WHERE user_id = ?), ?)", (user_id, user_id, photo_id))
-    conn.commit()
-    conn.close()
-
-def get_user_data(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT team_name, photo_id FROM user_teams WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return {"team_name": row[0] or "አልተጠቀሰም", "photo_id": row[1]}
-    return {"team_name": "አልተጠቀሰም", "photo_id": None}
-
-def save_pending_user(tx_id, user_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO pending_users (tx_id, user_id) VALUES (?, ?)", (tx_id, user_id))
-    conn.commit()
-    conn.close()
-
-def get_and_clear_pending_user(tx_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM pending_users WHERE tx_id = ?", (tx_id,))
-    row = cursor.fetchone()
-    if row:
-        cursor.execute("DELETE FROM pending_users WHERE tx_id = ?", (tx_id,))
-        conn.commit()
-        conn.close()
-        return row[0]
-    conn.close()
-    return None
-
-# =========================================================
-# ⚙️ GENERAL HELPERS & FLASK
-# =========================================================
 app = Flask(__name__)
 
+# Main Keyboard Menu
 def main_keyboard():
     keyboard = [
         ["💳 ለመክፈል", "⚽ የመግቢያ ኮድ ለመቀበል"],
@@ -219,6 +116,55 @@ def get_current_gameweek_info():
         print(f"FPL API Error: {e}")
         return {"gw_name": "Gameweek", "deadline_str": "N/A", "is_open": True}
 
+def get_league_standings():
+    try:
+        classic_url = f"https://fantasy.premierleague.com/api/leagues-classic/{FPL_LEAGUE_ID}/standings/"
+        res = requests.get(classic_url, timeout=10)
+        
+        if res.status_code == 200:
+            data = res.json()
+            standings = data.get('standings', {}).get('results', [])
+            league_name = data.get('league', {}).get('name', 'ETHIO FANTASY')
+            is_h2h = False
+        else:
+            h2h_url = f"https://fantasy.premierleague.com/api/leagues-h2h/{FPL_LEAGUE_ID}/standings/"
+            res = requests.get(h2h_url, timeout=10)
+            data = res.json()
+            standings = data.get('standings', {}).get('results', [])
+            league_name = data.get('league', {}).get('name', 'ETHIO FANTASY')
+            is_h2h = True
+
+        escaped_link = CHANNEL_LINK.replace("_", r"\_")
+
+        if not standings:
+            return (
+                f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
+                f"📊 እስካሁን ምንም የተመዘገበ ደረጃ የለም።\n\n"
+                f"🎁 **ቴሌግራም ቻናል፦**\n{escaped_link}"
+            )
+        
+        text = f"🏆 **{league_name} - የደረጃ ሰንጠረዥ**\n\n"
+        for player in standings[:15]:
+            rank = player.get('rank')
+            entry_name = player.get('entry_name')
+            player_name = player.get('player_name')
+            
+            if is_h2h:
+                points = player.get('total', 0)
+                win = player.get('matches_won', 0)
+                draw = player.get('matches_drawn', 0)
+                loss = player.get('matches_lost', 0)
+                text += f"**{rank}. {entry_name}** ({player_name})\n └ `{points} pts` | (W:{win} D:{draw} L:{loss})\n"
+            else:
+                total = player.get('total', 0)
+                text += f"**{rank}. {entry_name}** ({player_name}) - `{total} pts`\n"
+            
+        text += f"\n🎁 **ቴሌግራም ቻናል፦**\n{escaped_link}"
+        return text
+    except Exception as e:
+        print(f"Rank Error: {e}")
+        return "⚠️ የደረጃ መረጃውን ማምጣት አልተቻለም።"
+
 async def delete_message_after_delay(chat_id, message_id, delay_seconds=600):
     await asyncio.sleep(delay_seconds)
     try:
@@ -228,14 +174,10 @@ async def delete_message_after_delay(chat_id, message_id, delay_seconds=600):
 
 def process_successful_payment(user_id, tx_id):
     gw_info = get_current_gameweek_info()
-    user_data = get_user_data(user_id)
-    team_name = user_data["team_name"]
-    photo_id = user_data["photo_id"]
+    team_name = user_fpl_names.pop(user_id, "አልተጠቀሰም")
+    photo_id = user_screenshots.pop(user_id, None)
 
-    # 1. Tx IDውን USED ብሎ መቀየር (እንደገና እንዳይሰራ ማድረግ)
-    mark_sms_used(tx_id)
-
-    # 2. ለተጠቃሚው ኮዱን መላክ
+    # 1. ለተጠቃሚው ኮድ መላክ
     try:
         sent_msg = asyncio.run_coroutine_threadsafe(
             bot_app.bot.send_message(
@@ -261,7 +203,7 @@ def process_successful_payment(user_id, tx_id):
     except Exception as e:
         print(f"Error sending code to user: {e}")
 
-    # 3. ለአድሚን ግሩፕ መላክ
+    # 2. ለአድሚን ግሩፕ መላክ
     try:
         user_info = asyncio.run_coroutine_threadsafe(
             bot_app.bot.get_chat(user_id),
@@ -292,12 +234,9 @@ def process_successful_payment(user_id, tx_id):
     except Exception as e:
         print(f"Error sending to group: {e}")
 
-# =========================================================
-# 📩 SMS WEBHOOK (ከስልክ የሚመጣበት)
-# =========================================================
 @app.route('/')
 def home():
-    return "FPL Bot with Database is running!", 200
+    return "FPL Bot is running successfully!", 200
 
 @app.route('/sms_webhook', methods=['GET', 'POST'], strict_slashes=False)
 @app.route('/sms_webhook/', methods=['GET', 'POST'], strict_slashes=False)
@@ -311,30 +250,25 @@ def sms_webhook():
             data = request.form.to_dict()
             
         full_message = str(data.get('message', '') or data.get('text', '') or request.get_data(as_text=True))
-        print(f"--> Webhook SMS Received: {full_message}")
+        print(f"--> Webhook SMS: {full_message}")
 
         found_ids = re.findall(r'[A-Za-z0-9]{8,}', full_message)
         
         for tx in found_ids:
             tx_upper = tx.upper()
-            
-            # 1. ዳታቤዝ ውስጥ አስቀምጥ
-            save_telebirr_sms(tx_upper)
+            received_telebirr_smes.add(tx_upper)
 
-            # 2. ተጠቃሚው አስቀድሞ TG ላይ ልኮት የሚጠብቅ ከሆነ አስገባው
-            waiting_user_id = get_and_clear_pending_user(tx_upper)
-            if waiting_user_id:
-                print(f"✅ MATCH FOUND! Pending User {waiting_user_id} matched with Tx {tx_upper}")
-                process_successful_payment(waiting_user_id, tx_upper)
+            if tx_upper in pending_payments:
+                matched_user_id = pending_payments.pop(tx_upper)
+                print(f"✅ MATCH FOUND! Tx: {tx_upper} User: {matched_user_id}")
+                process_successful_payment(matched_user_id, tx_upper)
 
         return "OK", 200
     except Exception as e:
         print(f"Error in SMS Webhook: {e}")
         return "OK", 200
 
-# =========================================================
-# 🤖 TELEGRAM BOT HANDLERS
-# =========================================================
+# --- Telegram Bot Message Handler ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gw_info = get_current_gameweek_info()
     welcome_text = (
@@ -347,6 +281,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
 async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    gw_info = get_current_gameweek_info()
+    if not gw_info["is_open"]:
+        await update.message.reply_text("⚠️ የምዝገባ ሰዓት አልፏል።", reply_markup=main_keyboard())
+        return
+
     instruction_text = (
         f"💳 **የክፍያና ምዝገባ መመሪያ፦**\n\n"
         f"1️⃣ በ Telebirr ወደሚከተለው ቁጥር **{ENTRY_FEE} ብር** ይላኩ፦\n"
@@ -355,66 +294,74 @@ async def pay_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"3️⃣ **ከዚያም** የ Telebirr Transaction ID (Tx ID) ይላኩ።"
     )
 
-    if os.path.exists(PHOTO_PATH_1):
+    if os.path.exists(PHOTO_PATH_1) and os.path.exists(PHOTO_PATH_2):
+        media = [
+            InputMediaPhoto(open(PHOTO_PATH_1, 'rb'), caption=instruction_text, parse_mode="Markdown"),
+            InputMediaPhoto(open(PHOTO_PATH_2, 'rb'))
+        ]
+        await update.message.reply_media_group(media=media)
+    elif os.path.exists(PHOTO_PATH_1):
         with open(PHOTO_PATH_1, 'rb') as photo:
             await update.message.reply_photo(photo=photo, caption=instruction_text, reply_markup=main_keyboard(), parse_mode="Markdown")
     else:
         await update.message.reply_text(instruction_text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
+async def rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⏳ የደረጃ ሰንጠረዡ በመጫን ላይ ነው...", parse_mode="Markdown")
+    standings_text = get_league_standings()
+    await update.message.reply_text(standings_text, reply_markup=main_keyboard(), parse_mode="Markdown")
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat_id
-    photo_id = update.message.photo[-1].file_id
-    save_user_photo(user_id, photo_id)
+    user_screenshots[user_id] = update.message.photo[-1].file_id
     await update.message.reply_text("📸 ስክሪንሾቱ ተመዝግቧል! አሁን Transaction ID ይላኩ።", reply_markup=main_keyboard())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.chat_id
 
-    # አዝራሮች
+    # 1. አዝራሮች (Menu Buttons)
     if text in ["💳 ለመክፈል", "⚽ የመግቢያ ኮድ ለመቀበል"]:
         await pay_instruction(update, context)
+        return
+    elif text == "📊 የሊግ ደረጃዎች (Rank)":
+        await rank_command(update, context)
         return
     elif text == "ℹ️ መመሪያ":
         await update.message.reply_text(f"ℹ️ **መመሪያ**\n\n• ክፍያ በ Telebirr `{TELEBIRR_NO}` ፈጽመው Tx ID ይላኩ።\n• አድሚን፦ {ADMIN_USERNAMES}", reply_markup=main_keyboard(), parse_mode="Markdown")
         return
+    elif text == "👥 ጓደኛን መጋበዝ (Invite)":
+        bot_username = (await context.bot.get_me()).username
+        referral_link = f"https://t.me/{bot_username}?start={user_id}"
+        await update.message.reply_text(f"👥 **መጋበዣ ሊንክ፦**\n`{referral_link}`", reply_markup=main_keyboard(), parse_mode="Markdown")
+        return
+    elif text == "🎁 ነፃ እድል":
+        await update.message.reply_text("🎁 ነፃ እድል በቅርቡ ይከፈታል!", reply_markup=main_keyboard())
+        return
 
-    # Tx ID መሆኑን ማረጋገጥ (8-15 ፊደል/ቁጥር ያለው እና Space የሌለው)
+    # 2. Tx ID ወይም የቡድን ስም መለየት
+    # Tx ID ከሆነ (ቢያንስ 8 ፊደል/ቁጥር ያለው እና ምንም Space የሌለው)
     is_tx_format = bool(re.match(r'^[A-Za-z0-9]{8,15}$', text))
 
     if is_tx_format:
         tx_id = text.upper()
-        status = get_sms_status(tx_id)
 
-        # 🚨 1. Tx IDው ከዚህ ቀደም ጥቅም ላይ ውሎ ከሆነ (ደግመው እንዳይገቡ መከላከል)
-        if status == 'USED':
-            await update.message.reply_text(
-                "❌ **ይህ Transaction ID ቀደም ሲል ጥቅም ላይ ውሏል!**\n"
-                "እባክዎን አዲስ ያልተጠቀሙበትን ክፍያ Tx ID ይላኩ።",
-                reply_markup=main_keyboard()
-            )
-            return
-
-        # ✅ 2. ኤስኤምኤሱ ቀድሞ ደርሶ ከነበረ እና ያልተጠቀሙበት ከሆነ (PENDING)
-        elif status == 'PENDING':
+        # ሀ) SMS አስቀድሞ ደርሶ ከሆነ
+        if tx_id in received_telebirr_smes:
             process_successful_payment(user_id, tx_id)
-            return
-
-        # ⏳ 3. ኤስኤምኤሱ ገና ካልደረሰ (ወደ pending_users አስገባው)
+        # ለ) SMS ገና ካልደረሰ
         else:
-            save_pending_user(tx_id, user_id)
+            pending_payments[tx_id] = user_id
             admin_btn = InlineKeyboardMarkup([[InlineKeyboardButton("💬 አድሚንን ለማናገር", url=ADMIN_PRIMARY_URL)]])
             await update.message.reply_text(
                 f"📥 **Transaction ID ({tx_id}) ደርሶናል!**\n\n"
-                f"የ Telebirr SMS ማረጋገጫ እንደደረሰን የመግቢያ ኮዱ በራስ-ሰር ይላክሎታል።",
+                f"የ Telebirr SMS እንደደረሰን የመግቢያ ኮዱ በራስ-ሰር ይላክሎታል።",
                 reply_markup=admin_btn,
                 parse_mode="Markdown"
             )
-            return
-
     else:
-        # Tx ID ካልሆነ የ FPL የቡድን ስም አድርጎ ዳታቤዝ ላይ መመዝገብ
-        save_user_team(user_id, text)
+        # Tx ID ካልሆነ የ FPL የቡድን ስም አድርጎ መመዝገብ
+        user_fpl_names[user_id] = text
         await update.message.reply_text(
             f"✅ **የ FPL ቡድን ስምዎ «{text}» ተብሎ ተመዝግቧል!**\n\n"
             f"አሁን ደግሞ የ Telebirr **Transaction ID (Tx ID)** ይላኩልን።",
@@ -422,11 +369,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# =========================================================
-# 🚀 STARTUP
-# =========================================================
+# --- Application Startup ---
 bot_app = Application.builder().token(TOKEN).build()
 bot_app.add_handler(CommandHandler("start", start))
+bot_app.add_handler(CommandHandler("rank", rank_command))
 bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
